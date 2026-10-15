@@ -117,6 +117,32 @@ docker compose up -d
 
 ## Разработка
 
+### Проверки Python-кода
+
+Используются Python 3.13 и менеджер окружения `uv` согласно ADR-001.
+Если `uv` еще не установлен, установите его по
+[официальной инструкции](https://docs.astral.sh/uv/getting-started/installation/).
+Команды выполняются из корня репозитория:
+
+```sh
+uv sync --locked
+uv run --locked ruff check .
+uv run --locked ruff format --check .
+uv run --locked pyright
+```
+
+`uv sync` создает локальное окружение `.venv` и устанавливает инструменты из
+группы `dev`. Файл `uv.lock` фиксирует разрешенные версии зависимостей.
+Активация окружения вручную не требуется. Настройки Ruff и Pyright находятся
+в `pyproject.toml`; Pyright проверяет каталоги `backend/` и `ml/`.
+
+Для автоматического исправления замечаний и форматирования:
+
+```sh
+uv run --locked ruff check --fix .
+uv run --locked ruff format .
+```
+
 ### Ветвление
 
 В проекте используется GitHub Flow.
