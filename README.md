@@ -143,6 +143,37 @@ uv run --locked ruff check --fix .
 uv run --locked ruff format .
 ```
 
+### Проверки frontend-кода
+
+Используются Node.js 24 и npm. Установите Node.js с
+[официального сайта](https://nodejs.org/), если он еще не установлен.
+Команды выполняются из корня репозитория:
+
+```sh
+npm --prefix frontend ci
+npm --prefix frontend run lint
+npm --prefix frontend run format:check
+```
+
+ESLint проверяет JavaScript и TypeScript, включая JSX/TSX. Для будущего кода
+в `frontend/src/` доступны браузерные глобальные переменные, для файлов
+`*.config.*` в корне frontend — глобальные переменные Node.js.
+Prettier отвечает за форматирование файлов внутри `frontend/`.
+`eslint-config-prettier` отключает конфликтующие правила ESLint;
+отдельный плагин запуска Prettier через ESLint не используется.
+Версии зависимостей зафиксированы в `frontend/package-lock.json`.
+
+Для исправления замечаний и форматирования:
+
+```sh
+npm --prefix frontend run lint:fix
+npm --prefix frontend run format
+```
+
+Пока приложения нет, проверки анализируют конфигурационные файлы.
+Линтинг TypeScript пока выполняется без информации о типах;
+он не заменяет проверку TypeScript-компилятором после добавления приложения.
+
 ### Ветвление
 
 В проекте используется GitHub Flow.
