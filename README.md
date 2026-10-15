@@ -14,8 +14,212 @@ MemSearch - веб-сервис для поиска ранее сохранен�
 - `frontend/`- веб-клиент;
 - `ml/` - компоненты машинного обучения;
 - `docs/` - проектная и техническая документация.
+- `docker/` - скрипты инициализации инфраструктуры;
+- `compose.yaml` - конфигурация локальных PostgreSQL и Redis.
+
+## Локальное окружение
+
+Требуются Docker Engine (или запущенный Docker Desktop с Linux containers) и Docker Compose v2.
+Команды выполняются из корня репозитория. Compose запускает PostgreSQL 16 с pgvector 0.8.0
+и Redis 7.4.2; версии образов зафиксированы в `compose.yaml`.
+
+### Запуск
+
+Убедитесь, что Docker запущен:
+
+```sh
+docker info
+docker compose version
+```
+
+При первом запуске скопируйте пример настроек переменных окружения.
+Если `.env` уже существует, используйте его, чтобы сохранить локальные настройки:
+
+```powershell
+# Windows PowerShell
+Copy-Item .env.example .env
+```
+
+```sh
+# Linux / macOS
+cp .env.example .env
+```
+
+В `.env` задайте собственный непустой `POSTGRES_PASSWORD`. В примере нет секретов;
+локальный `.env` исключен из Git. При занятых портах измените `POSTGRES_PORT` или `REDIS_PORT`.
+
+```sh
+docker compose config --quiet
+docker compose up -d
+```
+
+Первый запуск скачивает образы и создает базу. Расширение `vector` включается автоматически
+скриптом `docker/postgres/init.sql` при инициализации пустого тома PostgreSQL.
+Для загрузки образов нужен доступ к сети; первая загрузка может занять несколько минут.
+Повторный `docker compose up -d` использует существующие контейнеры и данные.
+
+### Проверка готовности
+
+```sh
+docker compose ps
+```
+
+Дождитесь статуса `healthy` у обоих сервисов. PostgreSQL проверяется через `pg_isready`
+и SQL-запрос на наличие расширения `vector`, Redis - командой `PING`.
+Для запуска с ожиданием готовности используйте:
+
+```sh
+docker compose up -d --wait --wait-timeout 120
+```
+
+Дополнительная проверка SQL и Redis (если меняли имя базы или пользователя,
+замените `memsearch` соответствующими значениями из `.env`):
+
+```sh
+docker compose exec postgres psql -U memsearch -d memsearch -v ON_ERROR_STOP=1 -c "\dx vector"
+docker compose exec postgres psql -U memsearch -d memsearch -v ON_ERROR_STOP=1 -c "SELECT '[1,2,3]'::vector <-> '[1,2,4]'::vector AS distance;"
+docker compose exec redis redis-cli ping
+```
+
+Ожидаются расширение `vector` версии `0.8.0`, расстояние `distance = 1` и ответ `PONG`.
+PostgreSQL доступен на `127.0.0.1:5432` (база и пользователь из `.env`),
+Redis - на `127.0.0.1:6379` без пароля. Порты доступны только с локального компьютера.
+Если порты изменены в `.env`, используйте заданные значения вместо `5432` и `6379`.
+В сети Compose адреса сервисов - `postgres:5432` и `redis:6379`.
+
+Если сервис не готов, проверьте логи:
+
+```sh
+docker compose logs --tail=100 postgres redis
+```
+
+Если Docker сообщает об отсутствии соединения с Engine, запустите Docker Desktop
+и дождитесь его готовности. На Windows должен быть выбран режим Linux containers.
+Ошибка об обязательном `POSTGRES_PASSWORD` означает, что нужно задать непустой пароль в `.env`.
+
+### Остановка и данные
+
+```sh
+docker compose down
+```
+
+Данные сохраняются в именованных томах `postgres_data` и `redis_data` (с префиксом проекта).
+Изменение имени базы, пользователя или пароля в `.env` не перенастраивает уже созданную базу.
+Для полного сброса локального окружения выполните следующую команду - она удалит все данные
+PostgreSQL и Redis, после чего следующий запуск заново выполнит SQL-инициализацию:
+
+```sh
+docker compose down -v
+docker compose up -d
+```
+
+Описание расширения и образа: [официальная документация pgvector](https://github.com/pgvector/pgvector#docker).
 
 ## Разработка
+
+### Проверки Python-кода
+
+Используются Python 3.13 и менеджер окружения `uv` согласно ADR-001.
+Если `uv` еще не установлен, установите его по
+[официальной инструкции](https://docs.astral.sh/uv/getting-started/installation/).
+Команды выполняются из корня репозитория:
+
+```sh
+uv sync --locked
+uv run --locked ruff check .
+uv run --locked ruff format --check .
+uv run --locked pyright
+```
+
+`uv sync` создает локальное окружение `.venv` и устанавливает инструменты из
+группы `dev`. Файл `uv.lock` фиксирует разрешенные версии зависимостей.
+Активация окружения вручную не требуется. Настройки Ruff и Pyright находятся
+в `pyproject.toml`; Pyright проверяет каталоги `backend/` и `ml/`.
+
+Для автоматического исправления замечаний и форматирования:
+
+```sh
+uv run --locked ruff check --fix .
+uv run --locked ruff format .
+```
+
+### Проверки frontend-кода
+
+Используются Node.js 24 и npm. Установите Node.js с
+[официального сайта](https://nodejs.org/), если он еще не установлен.
+Команды выполняются из корня репозитория:
+
+```sh
+npm --prefix frontend ci
+npm --prefix frontend run lint
+npm --prefix frontend run format:check
+```
+
+ESLint проверяет JavaScript и TypeScript, включая JSX/TSX. Для будущего кода
+в `frontend/src/` доступны браузерные глобальные переменные, для файлов
+`*.config.*` в корне frontend — глобальные переменные Node.js.
+Prettier отвечает за форматирование файлов внутри `frontend/`.
+`eslint-config-prettier` отключает конфликтующие правила ESLint;
+отдельный плагин запуска Prettier через ESLint не используется.
+Версии зависимостей зафиксированы в `frontend/package-lock.json`.
+
+Для исправления замечаний и форматирования:
+
+```sh
+npm --prefix frontend run lint:fix
+npm --prefix frontend run format
+```
+
+Пока приложения нет, проверки анализируют конфигурационные файлы.
+Линтинг TypeScript пока выполняется без информации о типах;
+он не заменяет проверку TypeScript-компилятором после добавления приложения.
+
+### Локальные проверки перед коммитом
+
+После клонирования установите зависимости и подключите Git-хук:
+
+```sh
+uv sync --locked
+npm --prefix frontend ci
+uv run --locked pre-commit install
+```
+
+Для ручного запуска всех хуков по отслеживаемым Git-файлам:
+
+```sh
+uv run --locked pre-commit validate-config
+uv run --locked pre-commit run --all-files
+```
+
+Конфигурация находится в `.pre-commit-config.yaml`. Локальные хуки используют
+Ruff, Pyright, ESLint и Prettier из уже установленных окружений, без отдельных
+копий инструментов. Команды `uv` и `npm` должны быть доступны в `PATH`, в том
+числе при коммите из IDE.
+
+При коммите запускаются проверки соответствующей части проекта:
+Python при изменении Python-файлов или настроек, frontend при изменении файлов
+в `frontend/`. Изменение конфигурации pre-commit запускает оба набора проверок.
+Каждый выбранный хук проверяет всю свою область, чтобы учитывать связанные файлы.
+Хуки только сообщают об ошибках и не исправляют файлы автоматически.
+Для исправлений используйте команды из разделов выше, затем добавьте изменения
+в индекс и повторите коммит. Неотслеживаемые файлы не выбираются pre-commit,
+пока не добавлены в Git.
+
+### Проверки в GitHub Actions
+
+Workflow `.github/workflows/quality.yml` запускается для каждого нового Pull Request
+в `main`, при обновлении его коммитов и повторном открытии. Фильтров по путям нет:
+изменения документации также запускают проверки.
+
+Две независимые задачи работают на `ubuntu-latest`:
+
+- Python: установка Python по `.python-version` и зависимостей через `uv sync --locked`,
+  Ruff, Pyright и проверка конфигурации pre-commit;
+- frontend: Node.js 24, установка через `npm --prefix frontend ci`, ESLint и Prettier.
+
+CI использует те же команды проверок, что приведены выше. Полный запуск pre-commit
+в CI не дублируется: инструменты вызываются напрямую в соответствующих задачах.
+Docker и локальный `.env` для этих проверок не требуются.
 
 ### Ветвление
 
