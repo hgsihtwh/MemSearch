@@ -1,0 +1,64 @@
+name: Качество кода
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    name: Python - Ruff и Pyright
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Получить исходники
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Установить Node.js для Pyright
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Установить uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
+        with:
+          version: "0.9.18"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Установить Python
+        run: uv python install
+      - name: Установить зависимости Python
+        run: uv sync --locked
+      - name: Проверить линтинг Python
+        run: uv run --locked ruff check .
+      - name: Проверить форматирование Python
+        run: uv run --locked ruff format --check .
+      - name: Проверить типы Python
+        run: uv run --locked pyright
+      - name: Проверить конфигурацию pre-commit
+        run: uv run --locked pre-commit validate-config
+
+  frontend:
+    name: Frontend - ESLint и Prettier
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Получить исходники
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Установить Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Установить зависимости frontend
+        run: npm --prefix frontend ci
+      - name: Проверить линтинг frontend
+        run: npm --prefix frontend run lint
+      - name: Проверить форматирование frontend
+        run: npm --prefix frontend run format:check
