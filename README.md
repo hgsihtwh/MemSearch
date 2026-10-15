@@ -15,6 +15,89 @@ MemSearch - веб-сервис для поиска ранее сохранен�
 - `ml/` - компоненты машинного обучения;
 - `docs/` - проектная и техническая документация.
 
+## Локальное окружение
+
+Требуются Docker Engine (или запущенный Docker Desktop с Linux containers) и Docker Compose v2.
+Команды выполняются из корня репозитория. Compose запускает PostgreSQL 16 с pgvector 0.8.0
+и Redis 7.4.2; версии образов зафиксированы в `compose.yaml`.
+
+### Запуск
+
+Скопируйте пример настроек переменных окружения:
+
+```powershell
+# Windows PowerShell
+Copy-Item .env.example .env
+```
+
+```sh
+# Linux / macOS
+cp .env.example .env
+```
+
+В `.env` задайте собственный непустой `POSTGRES_PASSWORD`. В примере нет секретов;
+локальный `.env` исключен из Git. При занятых портах измените `POSTGRES_PORT` или `REDIS_PORT`.
+
+```sh
+docker compose config --quiet
+docker compose up -d
+```
+
+Первый запуск скачивает образы и создает базу. Расширение `vector` включается автоматически
+скриптом `docker/postgres/init.sql` при инициализации пустого тома PostgreSQL.
+Повторный `docker compose up -d` использует существующие контейнеры и данные.
+
+### Проверка готовности
+
+```sh
+docker compose ps
+```
+
+Дождитесь статуса `healthy` у обоих сервисов. PostgreSQL проверяется через `pg_isready`
+и SQL-запрос на наличие расширения `vector`, Redis - командой `PING`.
+Для запуска с ожиданием готовности используйте:
+
+```sh
+docker compose up -d --wait --wait-timeout 120
+```
+
+Дополнительная проверка SQL и Redis (если меняли имя базы или пользователя,
+замените `memsearch` соответствующими значениями из `.env`):
+
+```sh
+docker compose exec postgres psql -U memsearch -d memsearch -v ON_ERROR_STOP=1 -c "\dx vector"
+docker compose exec redis redis-cli ping
+```
+
+Ожидаются строка `vector | 0.8.0` и ответ `PONG`.
+PostgreSQL доступен на `127.0.0.1:5432` (база и пользователь из `.env`),
+Redis - на `127.0.0.1:6379` без пароля. Порты доступны только с локального компьютера.
+В сети Compose адреса сервисов - `postgres:5432` и `redis:6379`.
+
+Если сервис не готов, проверьте логи:
+
+```sh
+docker compose logs --tail=100 postgres redis
+```
+
+### Остановка и данные
+
+```sh
+docker compose down
+```
+
+Данные сохраняются в именованных томах `postgres_data` и `redis_data` (с префиксом проекта).
+Изменение имени базы, пользователя или пароля в `.env` не перенастраивает уже созданную базу.
+Для полного сброса локального окружения выполните следующую команду - она удалит все данные
+PostgreSQL и Redis, после чего следующий запуск заново выполнит SQL-инициализацию:
+
+```sh
+docker compose down -v
+docker compose up -d
+```
+
+Описание расширения и образа: [официальная документация pgvector](https://github.com/pgvector/pgvector#docker).
+
 ## Разработка
 
 ### Ветвление
