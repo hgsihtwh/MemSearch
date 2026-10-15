@@ -8,6 +8,7 @@ dependencies = []
 dev = [
     "ruff",
     "pyright",
+    "pre-commit",
 ]
 
 [tool.uv]

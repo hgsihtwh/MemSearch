@@ -1,0 +1,35 @@
+default_stages: [pre-commit]
+
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: Ruff — линтинг Python
+        entry: uv run --locked ruff check .
+        language: system
+        files: '(\.pyi?$|^pyproject\.toml$|^uv\.lock$|^\.pre-commit-config\.yaml$)'
+        pass_filenames: false
+      - id: ruff-format
+        name: Ruff — проверка форматирования Python
+        entry: uv run --locked ruff format --check .
+        language: system
+        files: '(\.pyi?$|^pyproject\.toml$|^uv\.lock$|^\.pre-commit-config\.yaml$)'
+        pass_filenames: false
+      - id: pyright
+        name: Pyright — проверка типов Python
+        entry: uv run --locked pyright
+        language: system
+        files: '(^(backend|ml)/.*\.pyi?$|^pyproject\.toml$|^uv\.lock$|^\.python-version$|^\.pre-commit-config\.yaml$)'
+        pass_filenames: false
+      - id: eslint
+        name: ESLint — линтинг frontend
+        entry: npm --prefix frontend run lint
+        language: system
+        files: '(^frontend/|^\.pre-commit-config\.yaml$)'
+        pass_filenames: false
+      - id: prettier
+        name: Prettier — проверка форматирования frontend
+        entry: npm --prefix frontend run format:check
+        language: system
+        files: '(^frontend/|^\.pre-commit-config\.yaml$)'
+        pass_filenames: false
