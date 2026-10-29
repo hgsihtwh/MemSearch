@@ -1,0 +1,13 @@
+{
+  "clip_id": 30,
+  "platform": "tiktok",
+  "url": "https://www.tiktok.com/@depersonalizacia11/video/7693586141785705749",
+  "external_id": "7693586141785705749",
+  "author": null,
+  "caption": null,
+  "duration": null,
+  "thumbnail": null,
+  "added_at": "2026-10-29T17:29:28+07:00",
+  "status": "error",
+  "error": "[TikTok] 7693586141785705749: This post may not be comfortable for some audiences. Log in for access. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies"
+}
