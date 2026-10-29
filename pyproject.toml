@@ -2,13 +2,23 @@
 name = "memsearch"
 version = "0.1.0"
 requires-python = ">=3.13,<3.14"
-dependencies = []
+dependencies = [
+    "alembic>=1.14",
+    "asyncpg>=0.30",
+    "fastapi>=0.115",
+    "pgvector>=0.3.6",
+    "pydantic-settings>=2.6",
+    "sqlalchemy[asyncio]>=2.0.36",
+    "uvicorn[standard]>=0.32",
+]
 
 [dependency-groups]
 dev = [
     "ruff",
     "pyright",
     "pre-commit",
+    "pytest>=8.3",
+    "httpx>=0.28",
 ]
 
 [tool.uv]
@@ -17,14 +27,20 @@ package = false
 [tool.ruff]
 target-version = "py313"
 line-length = 100
+src = [".", "backend"]
 
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F", "I", "UP", "B"]
 
 [tool.pyright]
 include = ["backend", "ml"]
+extraPaths = ["backend"]
 exclude = ["**/__pycache__", ".venv"]
 pythonVersion = "3.13"
 typeCheckingMode = "standard"
 venvPath = "."
 venv = ".venv"
+
+[tool.pytest.ini_options]
+testpaths = ["backend/tests"]
+pythonpath = ["backend"]

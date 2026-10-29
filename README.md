@@ -117,6 +117,29 @@ docker compose up -d
 
 Описание расширения и образа: [официальная документация pgvector](https://github.com/pgvector/pgvector#docker).
 
+### Backend
+
+Каркас backend: FastAPI, SQLAlchemy 2 (async, asyncpg), миграции Alembic. Модели соответствуют
+ER-модели из [описания архитектуры](docs/architecture.md), API — [спецификации OpenAPI](docs/api/openapi.yaml).
+Сервис `backend` собирается из `backend/Dockerfile`, при старте применяет миграции и запускает uvicorn:
+
+```sh
+docker compose up -d --build --wait backend
+curl http://127.0.0.1:8000/api/v1/health
+```
+
+Ожидается ответ `{"status":"ok","database":"ok"}`; при недоступной базе `/api/v1/health` отвечает 503.
+Порт задаётся `BACKEND_PORT` в `.env`. Если на Windows порт 5432 или 8000 зарезервирован системой
+(ошибка `bind: An attempt was made to access a socket in a way forbidden`), задайте в `.env`
+другие `POSTGRES_PORT`, `REDIS_PORT` и `BACKEND_PORT`.
+
+Проверка соответствия моделей и миграций и тесты:
+
+```sh
+docker compose exec backend alembic check
+uv run --locked pytest
+```
+
 ## Разработка
 
 ### Проверки Python-кода
