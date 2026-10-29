@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Ролик",
+  "description": "clips/{clip_id}.json — создаётся при добавлении ролика",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "clip_id",
+    "platform",
+    "url",
+    "external_id",
+    "status",
+    "added_at"
+  ],
+  "properties": {
+    "clip_id": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Внутренний номер ролика в MemSearch"
+    },
+    "platform": {
+      "enum": [
+        "tiktok",
+        "vk"
+      ]
+    },
+    "url": {
+      "type": "string",
+      "format": "uri"
+    },
+    "external_id": {
+      "type": "string",
+      "description": "ID ролика на платформе; пара (platform, external_id) уникальна — по ней ловим дубли"
+    },
+    "author": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Ник автора с @"
+    },
+    "caption": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Подпись (описание) ролика с платформы, как есть"
+    },
+    "duration": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0,
+      "description": "Длительность, с"
+    },
+    "thumbnail": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Путь к уменьшенному превью (thumbnails/{clip_id}.jpg)"
+    },
+    "added_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "status": {
+      "enum": [
+        "new",
+        "downloading",
+        "transcribing",
+        "indexing",
+        "enriching",
+        "done",
+        "error"
+      ]
+    },
+    "error": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Текст ошибки, если status = error"
+    }
+  }
+}

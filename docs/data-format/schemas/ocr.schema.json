@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Текст в кадре",
+  "description": "ocr/{clip_id}.json — текст с ключевых кадров (версия 1.0)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "clip_id",
+    "model",
+    "frames"
+  ],
+  "properties": {
+    "clip_id": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Внутренний номер ролика в MemSearch"
+    },
+    "model": {
+      "type": "string"
+    },
+    "frames": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "t",
+          "text"
+        ],
+        "properties": {
+          "t": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Секунды от начала ролика, 2 знака после запятой"
+          },
+          "text": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

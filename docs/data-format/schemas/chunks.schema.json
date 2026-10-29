@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Фрагменты",
+  "description": "chunks/{clip_id}.json — единицы поиска; i-й фрагмент соответствует i-й строке embeddings/{clip_id}.npy",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "clip_id",
+    "chunking",
+    "chunks"
+  ],
+  "properties": {
+    "clip_id": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Внутренний номер ролика в MemSearch"
+    },
+    "chunking": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "window",
+        "stride"
+      ],
+      "description": "Параметры разбиения речи на окна, с",
+      "properties": {
+        "window": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "stride": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      }
+    },
+    "chunks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "chunk_id",
+          "source",
+          "start",
+          "end",
+          "text"
+        ],
+        "properties": {
+          "chunk_id": {
+            "type": "string",
+            "pattern": "^[0-9]+_[0-9]{3}$",
+            "description": "{clip_id}_{порядковый номер из 3 цифр}"
+          },
+          "source": {
+            "enum": [
+              "caption",
+              "speech",
+              "ocr",
+              "scene"
+            ],
+            "description": "caption — подпись; speech — речь; ocr — текст в кадре; scene — описание кадра (версия 1.0)"
+          },
+          "start": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0,
+            "description": "null для подписи"
+          },
+          "end": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  }
+}

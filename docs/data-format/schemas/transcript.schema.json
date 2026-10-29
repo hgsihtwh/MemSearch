@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Транскрипт",
+  "description": "transcripts/{clip_id}.json — результат распознавания речи",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "clip_id",
+    "model",
+    "language",
+    "duration",
+    "segments"
+  ],
+  "properties": {
+    "clip_id": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Внутренний номер ролика в MemSearch"
+    },
+    "model": {
+      "type": "string",
+      "description": "Модель ASR, например «faster-whisper large-v3»"
+    },
+    "language": {
+      "type": "string",
+      "description": "Код языка ISO 639-1"
+    },
+    "duration": {
+      "type": "number",
+      "minimum": 0
+    },
+    "segments": {
+      "type": "array",
+      "description": "Фразы по порядку; пустой массив — речи нет",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "start",
+          "end",
+          "text"
+        ],
+        "properties": {
+          "start": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Секунды от начала ролика, 2 знака после запятой"
+          },
+          "end": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Секунды от начала ролика, 2 знака после запятой"
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  }
+}

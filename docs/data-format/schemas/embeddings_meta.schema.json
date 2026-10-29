@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Векторы фрагментов (описание)",
+  "description": "embeddings/{clip_id}.json рядом с embeddings/{clip_id}.npy (float32, [число фрагментов × dim], нормированы по L2)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "clip_id",
+    "model",
+    "dim",
+    "count",
+    "chunk_ids"
+  ],
+  "properties": {
+    "clip_id": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Внутренний номер ролика в MemSearch"
+    },
+    "model": {
+      "type": "string",
+      "description": "Модель эмбеддингов; выбирается в MEM-76"
+    },
+    "dim": {
+      "type": "integer",
+      "const": 1024
+    },
+    "count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "chunk_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Порядок строк матрицы"
+    }
+  }
+}

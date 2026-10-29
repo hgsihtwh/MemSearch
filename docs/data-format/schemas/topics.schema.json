@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Темы коллекции",
+  "description": "topics.json — один файл на коллекцию, пересчитывается BERTopic",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "topic_id",
+      "name",
+      "keywords",
+      "clip_ids"
+    ],
+    "properties": {
+      "topic_id": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "name": {
+        "type": "string",
+        "description": "Название темы; пользователь может переименовать"
+      },
+      "name_source": {
+        "enum": [
+          "auto",
+          "user"
+        ]
+      },
+      "keywords": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "clip_ids": {
+        "type": "array",
+        "items": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Внутренний номер ролика в MemSearch"
+        }
+      }
+    }
+  }
+}

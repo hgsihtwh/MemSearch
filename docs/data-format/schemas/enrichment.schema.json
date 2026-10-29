@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Описание, теги и тема ролика",
+  "description": "enrichment/{clip_id}.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "clip_id",
+    "summary",
+    "tags",
+    "topic_id"
+  ],
+  "properties": {
+    "clip_id": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Внутренний номер ролика в MemSearch"
+    },
+    "summary": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Краткое описание, 1–2 предложения (языковая модель)"
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "source"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source": {
+            "enum": [
+              "auto",
+              "user"
+            ]
+          }
+        }
+      }
+    },
+    "topic_id": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "description": "Тема из topics.json; null — ролик не попал ни в одну тему"
+    }
+  }
+}
