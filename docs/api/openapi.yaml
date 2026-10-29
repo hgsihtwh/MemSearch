@@ -1,0 +1,815 @@
+openapi: 3.1.0
+info:
+  title: MemSearch API
+  version: 0.1.0
+  description: |
+    REST API веб-приложения MemSearch (MEM-27). Клиенты: веб-приложение (PWA), расширение браузера,
+    Telegram-бот. Архитектура и модель данных — docs/architecture.md.
+
+    **Доступ.** Учётных записей нет (ФТ-7.5 в бэклоге). Коллекция создаётся запросом `POST /collections`,
+    который возвращает ключ доступа; дальше ключ передаётся в заголовке `Authorization: Bearer <ключ>`.
+    Бот вызывает API от имени привязанной коллекции (ФТ-7.2).
+
+    **Ошибки** возвращаются в формате `Error` с машинным кодом `code` и текстом для пользователя `message`.
+servers:
+  - url: http://localhost:8000/api/v1
+    description: Локальное окружение
+security:
+  - collectionKey: []
+tags:
+  - name: Сервис
+  - name: Коллекция
+  - name: Ролики
+    description: Прецеденты ПР-1, ПР-4, ПР-6
+  - name: Поиск
+    description: Прецеденты ПР-2, ПР-3, ПР-7
+  - name: Теги и темы
+    description: Прецеденты ПР-3, ПР-5
+  - name: Перенос и бот
+    description: Прецеденты ПР-4, ПР-6
+  - name: Администрирование
+
+paths:
+  /health:
+    get:
+      tags: [Сервис]
+      summary: Проверка работоспособности
+      security: []
+      responses:
+        "200":
+          description: Сервис работает
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+
+  /collections:
+    post:
+      tags: [Коллекция]
+      summary: Создать коллекцию
+      description: Первый запуск приложения на устройстве. Ключ показывается один раз; в базе хранится только его хеш.
+      security: []
+      responses:
+        "201":
+          description: Коллекция создана
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CollectionCreated" }
+
+  /collection:
+    get:
+      tags: [Коллекция]
+      summary: Сведения о коллекции и статистика
+      description: ФТ-7.4 — роликов, обработано, тем; ФТ-6.2 — прогресс обработки на главной.
+      responses:
+        "200":
+          description: Коллекция
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Collection" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    delete:
+      tags: [Коллекция]
+      summary: Удалить все данные коллекции
+      description: ФТ-7.3. Требует явного подтверждения в теле запроса.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [confirm]
+              properties:
+                confirm: { type: boolean, const: true }
+      responses:
+        "204": { description: Коллекция и все связанные данные удалены }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /clips:
+    post:
+      tags: [Ролики]
+      summary: Добавить ролики по ссылкам
+      description: |
+        ПР-1, ПР-6 (ФТ-1.1–1.5). Одна или несколько ссылок TikTok и VK. Для каждой ссылки возвращается
+        отдельный результат: добавлен, уже в коллекции или ошибка. Добавленные ролики ставятся в очередь
+        обработки (ФТ-2.5, ФТ-2.6).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AddClipsRequest" }
+      responses:
+        "202":
+          description: Ссылки приняты
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AddClipsResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+    get:
+      tags: [Ролики]
+      summary: Список роликов коллекции
+      description: ФТ-7.1 — «Все ролики» с сортировкой и поиском по названию; ФТ-6.2 — недавно добавленные; ФТ-1.7 — статусы.
+      parameters:
+        - { name: sort, in: query, schema: { type: string, enum: [newest, oldest], default: newest } }
+        - { name: status, in: query, schema: { $ref: "#/components/schemas/ClipStatus" } }
+        - { name: topic_id, in: query, schema: { type: integer } }
+        - { name: title, in: query, description: Поиск по названию, schema: { type: string } }
+        - { $ref: "#/components/parameters/Cursor" }
+        - { $ref: "#/components/parameters/Limit" }
+      responses:
+        "200":
+          description: Страница роликов
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ClipPage" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /clips/statuses:
+    get:
+      tags: [Ролики]
+      summary: Статусы обработки нескольких роликов
+      description: ФТ-1.7 — опрос статусов без перезагрузки страницы.
+      parameters:
+        - name: ids
+          in: query
+          required: true
+          style: form
+          explode: false
+          schema: { type: array, items: { type: integer }, maxItems: 200 }
+      responses:
+        "200":
+          description: Статусы
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ClipStatusItem" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /clips/{clip_id}:
+    parameters:
+      - { $ref: "#/components/parameters/ClipId" }
+    get:
+      tags: [Ролики]
+      summary: Карточка ролика
+      description: |
+        ФТ-4.3, ФТ-4.6, ФТ-4.7. Метаданные, описание, теги, тема, транскрипт с таймкодами и текст в кадре.
+        Если передан `q`, места совпадения с запросом размечены в `highlights` (ФТ-4.4).
+      parameters:
+        - { name: q, in: query, description: "Запрос, из которого открыта карточка", schema: { type: string } }
+      responses:
+        "200":
+          description: Ролик
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ClipDetail" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [Ролики]
+      summary: Удалить ролик из коллекции
+      description: ФТ-1.8. Ролик и все его данные удаляются; ролик пропадает из поиска и тем.
+      responses:
+        "204": { description: Удалён }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /clips/{clip_id}/retry:
+    parameters:
+      - { $ref: "#/components/parameters/ClipId" }
+    post:
+      tags: [Ролики]
+      summary: Повторить обработку
+      description: ФТ-2.7, ФТ-1.7 — кнопка «Повторить» у ролика с ошибкой.
+      responses:
+        "202":
+          description: Ролик поставлен в очередь
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ClipStatusItem" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Ролик не в статусе failed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /clips/{clip_id}/tags:
+    parameters:
+      - { $ref: "#/components/parameters/ClipId" }
+    post:
+      tags: [Теги и темы]
+      summary: Добавить тег ролику
+      description: ФТ-5.2. Свой тег создаётся, если такого ещё нет в коллекции.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 50 }
+      responses:
+        "201":
+          description: Тег добавлен
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ClipTag" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /clips/{clip_id}/tags/{tag_id}:
+    parameters:
+      - { $ref: "#/components/parameters/ClipId" }
+      - { name: tag_id, in: path, required: true, schema: { type: integer } }
+    delete:
+      tags: [Теги и темы]
+      summary: Убрать тег у ролика
+      description: ФТ-5.2 — в том числе автоматический.
+      responses:
+        "204": { description: Тег убран }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /search:
+    post:
+      tags: [Поиск]
+      summary: Найти ролики по описанию
+      description: |
+        ПР-2, ПР-3 (ФТ-3.1–3.7). Гибридный поиск по фрагментам: векторный (multilingual-e5-large) и
+        полнотекстовый с нечётким совпадением. Выдача — ролики целиком, один ролик — одна карточка,
+        с источником и цитатой «почему найден». Пустой `items` — экран «Ничего не нашли» (ФТ-3.7).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SearchRequest" }
+      responses:
+        "200":
+          description: Результаты
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SearchResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /search/image:
+    post:
+      tags: [Поиск]
+      summary: Найти ролик по картинке (после 1.0)
+      description: ПР-7 (ФТ-3.9). Скриншот или кадр сравнивается с векторами ключевых кадров.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [image]
+              properties:
+                image: { type: string, format: binary }
+                limit: { type: integer, default: 20 }
+      responses:
+        "200":
+          description: Результаты
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SearchResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "501": { description: Функция ещё не реализована }
+
+  /search/feedback:
+    post:
+      tags: [Поиск]
+      summary: Оценить результат поиска
+      description: ФТ-3.8 — кнопки «подходит» и «не подходит».
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SearchFeedback" }
+      responses:
+        "204": { description: Оценка сохранена }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /topics:
+    get:
+      tags: [Теги и темы]
+      summary: Темы коллекции
+      description: ПР-5 (ФТ-5.3, ФТ-5.5, ФТ-5.6). Если роликов меньше 20, `items` пуст и `min_clips` подсказывает порог.
+      responses:
+        "200":
+          description: Темы
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, min_clips]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Topic" }
+                  min_clips: { type: integer, example: 20 }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /topics/{topic_id}:
+    parameters:
+      - { name: topic_id, in: path, required: true, schema: { type: integer } }
+    patch:
+      tags: [Теги и темы]
+      summary: Переименовать тему
+      description: ФТ-5.4. Пользовательское название сохраняется при пересчёте тем.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 60 }
+      responses:
+        "200":
+          description: Тема
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Topic" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /tags:
+    get:
+      tags: [Теги и темы]
+      summary: Теги коллекции
+      responses:
+        "200":
+          description: Теги с числом роликов
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  allOf:
+                    - { $ref: "#/components/schemas/Tag" }
+                    - type: object
+                      properties:
+                        clips: { type: integer }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /imports:
+    post:
+      tags: [Перенос и бот]
+      summary: Начать или продолжить перенос «Избранного»
+      description: |
+        ПР-4 (ФТ-1.6). Расширение создаёт сессию переноса; если незавершённая сессия для платформы уже есть,
+        она возвращается вместе с `cursor` — расширение продолжает с места остановки.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [platform, scope]
+              properties:
+                platform: { $ref: "#/components/schemas/Platform" }
+                scope: { type: string, enum: [last200, year, all] }
+                total: { type: integer, description: "Сколько роликов найдено на странице, если известно" }
+      responses:
+        "200":
+          description: Сессия переноса
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ImportSession" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /imports/{import_id}/batches:
+    parameters:
+      - { name: import_id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Перенос и бот]
+      summary: Отправить пачку ссылок переноса
+      description: До 100 ссылок за запрос. Уже добавленные ролики пропускаются. Ролики переноса идут в очередь full.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [urls]
+              properties:
+                urls:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+                  items: { type: string, format: uri }
+                cursor: { type: string, description: Место на странице после этой пачки }
+      responses:
+        "200":
+          description: Пачка принята
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: "#/components/schemas/ImportSession" }
+                  - type: object
+                    properties:
+                      added: { type: integer }
+                      skipped: { type: integer }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /telegram/link-code:
+    post:
+      tags: [Перенос и бот]
+      summary: Получить ссылку для подключения Telegram-бота
+      description: ФТ-7.2. Одноразовый код действует 10 минут; ссылка вида `https://t.me/<бот>?start=<код>`.
+      responses:
+        "201":
+          description: Код создан
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, url, expires_at]
+                properties:
+                  code: { type: string }
+                  url: { type: string, format: uri }
+                  expires_at: { type: string, format: date-time }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /telegram/link:
+    post:
+      tags: [Перенос и бот]
+      summary: Подтвердить привязку бота (вызывает бот)
+      description: Бот передаёт код из команды `/start` и id пользователя Telegram; ответ содержит ключ коллекции для дальнейших вызовов бота.
+      security:
+        - botToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code, telegram_user_id]
+              properties:
+                code: { type: string }
+                telegram_user_id: { type: integer, format: int64 }
+      responses:
+        "200":
+          description: Бот привязан
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [collection_key]
+                properties:
+                  collection_key: { type: string }
+        "404": { description: Код не найден или истёк }
+
+  /admin/jobs:
+    get:
+      tags: [Администрирование]
+      summary: Очередь обработки и ошибки
+      description: ФТ-8.1. Доступно по ключу администратора.
+      security:
+        - adminToken: []
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [queued, running, done, failed] } }
+        - { $ref: "#/components/parameters/Limit" }
+      responses:
+        "200":
+          description: Задачи обработки
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ProcessingJob" }
+
+  /admin/feedback:
+    get:
+      tags: [Администрирование]
+      summary: Выгрузка оценок поиска
+      description: ФТ-3.8 — выгрузка для администратора.
+      security:
+        - adminToken: []
+      responses:
+        "200":
+          description: CSV с оценками
+          content:
+            text/csv:
+              schema: { type: string }
+
+components:
+  securitySchemes:
+    collectionKey:
+      type: http
+      scheme: bearer
+      description: Ключ коллекции из `POST /collections` или из привязки бота
+    botToken:
+      type: apiKey
+      in: header
+      name: X-Bot-Token
+    adminToken:
+      type: apiKey
+      in: header
+      name: X-Admin-Token
+
+  parameters:
+    ClipId:
+      name: clip_id
+      in: path
+      required: true
+      schema: { type: integer }
+    Cursor:
+      name: cursor
+      in: query
+      description: Курсор следующей страницы из предыдущего ответа
+      schema: { type: string }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 30 }
+
+  responses:
+    Unauthorized:
+      description: Нет ключа коллекции или он неверный
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: Не найдено в этой коллекции
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    ValidationError:
+      description: Неверные данные запроса
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code: { type: string, example: unsupported_url }
+        message: { type: string, example: Поддерживаются ссылки TikTok и VK }
+
+    Platform:
+      type: string
+      enum: [tiktok, vk]
+
+    ClipStatus:
+      type: string
+      description: Статус обработки (ФТ-1.7). В интерфейсе queued — «в очереди», downloading…enriching — «обрабатывается», ready — «готов», failed — «ошибка».
+      enum: [queued, downloading, transcribing, indexing, enriching, ready, failed]
+
+    MatchSource:
+      type: string
+      description: Источник совпадения (ФТ-3.5)
+      enum: [speech, caption, title, ocr, scene]
+
+    CollectionCreated:
+      type: object
+      required: [id, key]
+      properties:
+        id: { type: string, format: uuid }
+        key: { type: string, description: Ключ доступа; показывается один раз }
+
+    Collection:
+      type: object
+      required: [id, created_at, stats]
+      properties:
+        id: { type: string, format: uuid }
+        created_at: { type: string, format: date-time }
+        onboarding_done: { type: boolean }
+        telegram_linked: { type: boolean }
+        stats:
+          type: object
+          required: [clips, ready, processing, failed, topics]
+          properties:
+            clips: { type: integer }
+            ready: { type: integer }
+            processing: { type: integer }
+            failed: { type: integer }
+            topics: { type: integer }
+
+    AddClipsRequest:
+      type: object
+      required: [urls]
+      properties:
+        urls:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items: { type: string }
+          example: ["https://www.tiktok.com/@user/video/7693220621068684562"]
+        source:
+          type: string
+          enum: [paste, share, bot]
+          default: paste
+          description: Откуда пришла ссылка; share и bot обрабатываются вне очереди переноса (ФТ-2.6)
+
+    AddClipResult:
+      type: object
+      required: [url, result]
+      properties:
+        url: { type: string }
+        result: { type: string, enum: [added, duplicate, error] }
+        clip_id: { type: integer, description: Для added и duplicate }
+        error: { $ref: "#/components/schemas/Error" }
+
+    AddClipsResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/AddClipResult" }
+
+    ClipStatusItem:
+      type: object
+      required: [id, status]
+      properties:
+        id: { type: integer }
+        status: { $ref: "#/components/schemas/ClipStatus" }
+        error: { type: [string, "null"] }
+
+    ClipSummary:
+      type: object
+      required: [id, platform, url, status, added_at]
+      properties:
+        id: { type: integer }
+        platform: { $ref: "#/components/schemas/Platform" }
+        url: { type: string, format: uri }
+        title: { type: [string, "null"] }
+        author: { type: [string, "null"] }
+        thumbnail_url: { type: [string, "null"], format: uri }
+        duration: { type: [number, "null"] }
+        status: { $ref: "#/components/schemas/ClipStatus" }
+        summary: { type: [string, "null"], description: Краткое описание (1.0) }
+        added_at: { type: string, format: date-time }
+
+    ClipPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/ClipSummary" }
+        next_cursor: { type: [string, "null"] }
+        total: { type: integer }
+
+    Tag:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+
+    ClipTag:
+      allOf:
+        - { $ref: "#/components/schemas/Tag" }
+        - type: object
+          required: [source]
+          properties:
+            source: { type: string, enum: [auto, user] }
+
+    Topic:
+      type: object
+      required: [id, name, clips]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        name_source: { type: string, enum: [auto, user] }
+        keywords: { type: array, items: { type: string } }
+        clips: { type: integer }
+        preview_urls: { type: array, maxItems: 4, items: { type: string, format: uri } }
+
+    TranscriptSegment:
+      type: object
+      required: [start, end, text]
+      properties:
+        start: { type: number }
+        end: { type: number }
+        text: { type: string }
+
+    Highlight:
+      type: object
+      description: Место совпадения с запросом (ФТ-4.4)
+      required: [source, start_char, end_char]
+      properties:
+        source: { type: string, enum: [speech, ocr] }
+        segment_index: { type: integer, description: Индекс фразы транскрипта или кадра }
+        start_char: { type: integer }
+        end_char: { type: integer }
+
+    ClipDetail:
+      allOf:
+        - { $ref: "#/components/schemas/ClipSummary" }
+        - type: object
+          properties:
+            caption: { type: [string, "null"] }
+            published_at: { type: [string, "null"], format: date-time }
+            error: { type: [string, "null"] }
+            topic: { oneOf: [{ $ref: "#/components/schemas/Topic" }, { type: "null" }] }
+            tags:
+              type: array
+              items: { $ref: "#/components/schemas/ClipTag" }
+            transcript:
+              type: array
+              items: { $ref: "#/components/schemas/TranscriptSegment" }
+            frame_texts:
+              type: array
+              description: Текст в кадре (1.0)
+              items:
+                type: object
+                properties:
+                  t: { type: number }
+                  text: { type: string }
+            highlights:
+              type: array
+              items: { $ref: "#/components/schemas/Highlight" }
+
+    SearchRequest:
+      type: object
+      required: [q]
+      properties:
+        q: { type: string, minLength: 1, maxLength: 300, example: "ролик, где говорили про тихо, мирно, без суеты" }
+        topic_id: { type: integer, description: Фильтр по теме (ФТ-3.6) }
+        limit: { type: integer, minimum: 1, maximum: 50, default: 20 }
+
+    SearchHit:
+      type: object
+      required: [clip, score, match]
+      properties:
+        clip: { $ref: "#/components/schemas/ClipSummary" }
+        score: { type: number, description: Итоговая оценка гибридного поиска }
+        position: { type: integer, description: "Позиция в выдаче, начиная с 1" }
+        match:
+          type: object
+          description: Почему найден (ФТ-3.5)
+          required: [source, quote]
+          properties:
+            source: { $ref: "#/components/schemas/MatchSource" }
+            quote: { type: string, maxLength: 100 }
+            highlights:
+              type: array
+              description: Диапазоны слов запроса в цитате
+              items:
+                type: array
+                items: { type: integer }
+                minItems: 2
+                maxItems: 2
+
+    SearchResponse:
+      type: object
+      required: [query_id, total, items]
+      properties:
+        query_id: { type: string, format: uuid, description: Для привязки оценок ФТ-3.8 }
+        total: { type: integer, description: «Найдено M роликов» }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/SearchHit" }
+        suggestions:
+          type: array
+          description: Примеры запросов для экрана «Ничего не нашли» (ФТ-3.7)
+          items: { type: string }
+
+    SearchFeedback:
+      type: object
+      required: [query_id, clip_id, position, relevant]
+      properties:
+        query_id: { type: string, format: uuid }
+        clip_id: { type: integer }
+        position: { type: integer }
+        relevant: { type: boolean }
+
+    ImportSession:
+      type: object
+      required: [id, platform, scope, sent, status]
+      properties:
+        id: { type: string, format: uuid }
+        platform: { $ref: "#/components/schemas/Platform" }
+        scope: { type: string, enum: [last200, year, all] }
+        total: { type: [integer, "null"] }
+        sent: { type: integer, description: «Перенесено N из M» }
+        cursor: { type: [string, "null"] }
+        status: { type: string, enum: [active, done] }
+
+    ProcessingJob:
+      type: object
+      required: [id, clip_id, stage, status, attempts]
+      properties:
+        id: { type: integer }
+        clip_id: { type: integer }
+        stage: { type: string, enum: [fast, full, enrich] }
+        status: { type: string, enum: [queued, running, done, failed] }
+        attempts: { type: integer }
+        error: { type: [string, "null"] }
+        started_at: { type: [string, "null"], format: date-time }
+        finished_at: { type: [string, "null"], format: date-time }
