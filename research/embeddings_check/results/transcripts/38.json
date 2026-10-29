@@ -1,0 +1,13 @@
+{
+ "clip_id": 38,
+ "model": "faster-whisper large-v3",
+ "language": "ru",
+ "duration": 47.7,
+ "segments": [
+  {
+   "start": 6.35,
+   "end": 13.92,
+   "text": "Продолжение следует..."
+  }
+ ]
+}

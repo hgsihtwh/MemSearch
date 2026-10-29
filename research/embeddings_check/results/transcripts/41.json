@@ -1,0 +1,13 @@
+{
+ "clip_id": 41,
+ "model": "faster-whisper large-v3",
+ "language": "ru",
+ "duration": 60.0,
+ "segments": [
+  {
+   "start": 0.18,
+   "end": 0.98,
+   "text": "Субтитры создавал DimaTorzok"
+  }
+ ]
+}

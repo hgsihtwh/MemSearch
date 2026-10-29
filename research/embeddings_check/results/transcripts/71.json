@@ -1,0 +1,23 @@
+{
+ "clip_id": 71,
+ "model": "faster-whisper large-v3",
+ "language": "ru",
+ "duration": 69.09,
+ "segments": [
+  {
+   "start": 0.0,
+   "end": 29.98,
+   "text": "Девушки отдыхают..."
+  },
+  {
+   "start": 30.0,
+   "end": 59.98,
+   "text": "Девушки отдыхают..."
+  },
+  {
+   "start": 60.0,
+   "end": 69.04,
+   "text": "Девушки отдыхают..."
+  }
+ ]
+}

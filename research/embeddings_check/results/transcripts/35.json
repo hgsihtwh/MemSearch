@@ -1,0 +1,13 @@
+{
+ "clip_id": 35,
+ "model": "faster-whisper large-v3",
+ "language": "ru",
+ "duration": 24.56,
+ "segments": [
+  {
+   "start": 0.05,
+   "end": 4.39,
+   "text": "ДИНАМИЧНАЯ МУЗЫКА"
+  }
+ ]
+}

@@ -1,0 +1,133 @@
+{
+ "clip_id": 37,
+ "model": "faster-whisper large-v3",
+ "language": "ru",
+ "duration": 272.12,
+ "segments": [
+  {
+   "start": 0.78,
+   "end": 30.76,
+   "text": "Субтитры сделал DimaTorzok"
+  },
+  {
+   "start": 30.78,
+   "end": 60.76,
+   "text": "Субтитры сделал DimaTorzok"
+  },
+  {
+   "start": 60.78,
+   "end": 90.76,
+   "text": "Субтитры сделал DimaTorzok"
+  },
+  {
+   "start": 90.78,
+   "end": 120.76,
+   "text": "Субтитры сделал DimaTorzok"
+  },
+  {
+   "start": 120.78,
+   "end": 150.76,
+   "text": "Субтитры сделал DimaTorzok"
+  },
+  {
+   "start": 150.78,
+   "end": 180.76,
+   "text": "Субтитры сделал DimaTorzok"
+  },
+  {
+   "start": 180.78,
+   "end": 210.76,
+   "text": "Субтитры сделал DimaTorzok"
+  },
+  {
+   "start": 210.78,
+   "end": 234.78,
+   "text": "Субтитры сделал DimaTorzok"
+  },
+  {
+   "start": 234.78,
+   "end": 236.78,
+   "text": "Субтитры сделал DimaTorzok"
+  },
+  {
+   "start": 236.78,
+   "end": 238.78,
+   "text": "Субтитры сделал DimaTorzok"
+  },
+  {
+   "start": 238.78,
+   "end": 239.86,
+   "text": "Субтитры сделал DimaTorzok"
+  },
+  {
+   "start": 239.86,
+   "end": 239.9,
+   "text": "Субтитры сделал DimaTorzok"
+  },
+  {
+   "start": 239.9,
+   "end": 239.92,
+   "text": "Субтитры сделал DimaTorzok"
+  },
+  {
+   "start": 239.92,
+   "end": 239.94,
+   "text": "Субтитры сделал DimaTorzok"
+  },
+  {
+   "start": 239.94,
+   "end": 239.96,
+   "text": "Субтитры сделал DimaTorzok"
+  },
+  {
+   "start": 239.96,
+   "end": 240.02,
+   "text": "Субтитры сделал DimaTorzok"
+  },
+  {
+   "start": 240.02,
+   "end": 240.08,
+   "text": "Субтитры сделал DimaTorzok"
+  },
+  {
+   "start": 240.08,
+   "end": 240.14,
+   "text": "Субтитры сделал DimaTorzok"
+  },
+  {
+   "start": 240.14,
+   "end": 240.18,
+   "text": "Субтитры сделал DimaTorzok"
+  },
+  {
+   "start": 240.18,
+   "end": 240.24,
+   "text": "Субтитры сделал DimaTorzok"
+  },
+  {
+   "start": 240.24,
+   "end": 240.32,
+   "text": "Субтитры сделал DimaTorzok"
+  },
+  {
+   "start": 240.32,
+   "end": 240.38,
+   "text": "Субтитры сделал DimaTorzok"
+  },
+  {
+   "start": 240.38,
+   "end": 240.42,
+   "text": "Субтитры сделал DimaTorzok"
+  },
+  {
+   "start": 240.78,
+   "end": 270.76,
+   "text": "Субтитры сделал DimaTorzok"
+  },
+  {
+   "start": 270.78,
+   "end": 271.6,
+   "text": "Субтитры сделал DimaTorzok"
+  }
+ ]
+}

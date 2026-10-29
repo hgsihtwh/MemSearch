@@ -1,0 +1,13 @@
+{
+ "clip_id": 4,
+ "model": "faster-whisper large-v3",
+ "language": "ru",
+ "duration": 19.34,
+ "segments": [
+  {
+   "start": 0.0,
+   "end": 0.58,
+   "text": "Собака"
+  }
+ ]
+}

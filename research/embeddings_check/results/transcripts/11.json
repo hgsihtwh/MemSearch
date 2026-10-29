@@ -1,0 +1,13 @@
+{
+ "clip_id": 11,
+ "model": "faster-whisper large-v3",
+ "language": "ru",
+ "duration": 60.0,
+ "segments": [
+  {
+   "start": 35.18,
+   "end": 60.0,
+   "text": "ты видишь там шрамы куришь глаза ты давишь зевон"
+  }
+ ]
+}

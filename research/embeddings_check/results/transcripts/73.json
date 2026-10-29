@@ -1,0 +1,13 @@
+{
+ "clip_id": 73,
+ "model": "faster-whisper large-v3",
+ "language": "ru",
+ "duration": 38.48,
+ "segments": [
+  {
+   "start": 0.0,
+   "end": 3.4,
+   "text": "Tonight we're going hard, hard, hard, hard"
+  }
+ ]
+}
