@@ -42,5 +42,5 @@ venvPath = "."
 venv = ".venv"
 
 [tool.pytest.ini_options]
-testpaths = ["backend/tests"]
+testpaths = ["backend/tests", "research/pgvector_bench"]
 pythonpath = ["backend"]
