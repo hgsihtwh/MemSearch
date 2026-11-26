@@ -11,6 +11,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     String,
@@ -170,11 +171,17 @@ class Collection(Base):
     clips: Mapped[list["Clip"]] = relationship(
         back_populates="collection", cascade="all, delete-orphan", passive_deletes=True
     )
+    playlists: Mapped[list["Playlist"]] = relationship(
+        back_populates="collection", cascade="all, delete-orphan", passive_deletes=True
+    )
 
 
 class Topic(Base):
     __tablename__ = "topics"
-    __table_args__ = (CheckConstraint(_in("name_source", ("auto", "user"))),)
+    __table_args__ = (
+        CheckConstraint(_in("name_source", ("auto", "user"))),
+        UniqueConstraint("id", "collection_id", name="uq_topics_id_collection"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     collection_id: Mapped[uuid.UUID] = mapped_column(
@@ -183,6 +190,7 @@ class Topic(Base):
     name: Mapped[str] = mapped_column(Text)
     name_source: Mapped[str] = mapped_column(String(8), default="auto")
     keywords: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     computed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -192,6 +200,7 @@ class Clip(Base):
     __tablename__ = "clips"
     __table_args__ = (
         UniqueConstraint("collection_id", "platform", "external_id"),
+        UniqueConstraint("id", "collection_id", name="uq_clips_id_collection"),
         CheckConstraint(_in("platform", ("tiktok", "vk"))),
         CheckConstraint(_in("status", CLIP_STATUSES)),
         Index("ix_clips_collection_added", "collection_id", "added_at"),
@@ -286,13 +295,128 @@ class Chunk(Base):
 
 class Tag(Base):
     __tablename__ = "tags"
-    __table_args__ = (UniqueConstraint("collection_id", "name"),)
+    __table_args__ = (
+        UniqueConstraint("collection_id", "name"),
+        UniqueConstraint("id", "collection_id", name="uq_tags_id_collection"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     collection_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("collections.id", ondelete="CASCADE")
     )
     name: Mapped[str] = mapped_column(Text)
+
+
+class Playlist(Base):
+    """Ручная подборка; её удаление не удаляет сами ролики."""
+
+    __tablename__ = "playlists"
+    __table_args__ = (
+        UniqueConstraint("id", "collection_id", name="uq_playlists_id_collection"),
+        CheckConstraint("name ~ '[^[:space:]]'", name="ck_playlists_nonempty_name"),
+        Index("ix_playlists_collection_created", "collection_id", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    collection_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("collections.id", ondelete="CASCADE")
+    )
+    name: Mapped[str] = mapped_column(String(60))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    collection: Mapped[Collection] = relationship(back_populates="playlists")
+    memberships: Mapped[list["PlaylistClip"]] = relationship(
+        back_populates="playlist", cascade="all, delete-orphan", passive_deletes=True
+    )
+    tag_links: Mapped[list["PlaylistTag"]] = relationship(
+        back_populates="playlist", cascade="all, delete-orphan", passive_deletes=True
+    )
+
+
+class PlaylistClip(Base):
+    __tablename__ = "playlist_clips"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["playlist_id", "collection_id"],
+            ["playlists.id", "playlists.collection_id"],
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["clip_id", "collection_id"], ["clips.id", "clips.collection_id"], ondelete="CASCADE"
+        ),
+        Index("ix_playlist_clips_clip_id", "clip_id"),
+    )
+
+    playlist_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    clip_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    collection_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
+    added_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    playlist: Mapped[Playlist] = relationship(back_populates="memberships")
+
+
+class PlaylistTag(Base):
+    __tablename__ = "playlist_tags"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["playlist_id", "collection_id"],
+            ["playlists.id", "playlists.collection_id"],
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["tag_id", "collection_id"], ["tags.id", "tags.collection_id"], ondelete="CASCADE"
+        ),
+        Index("ix_playlist_tags_tag_id", "tag_id"),
+    )
+
+    playlist_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    tag_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    collection_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
+
+    playlist: Mapped[Playlist] = relationship(back_populates="tag_links")
+
+
+class TopicTag(Base):
+    __tablename__ = "topic_tags"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["topic_id", "collection_id"],
+            ["topics.id", "topics.collection_id"],
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["tag_id", "collection_id"], ["tags.id", "tags.collection_id"], ondelete="CASCADE"
+        ),
+        Index("ix_topic_tags_tag_id", "tag_id"),
+    )
+
+    topic_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tag_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    collection_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
+
+
+class TopicExclusion(Base):
+    """Сохранённое исключение; будущий пересчёт тем должен учитывать эти строки."""
+
+    __tablename__ = "topic_exclusions"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["topic_id", "collection_id"],
+            ["topics.id", "topics.collection_id"],
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["clip_id", "collection_id"], ["clips.id", "clips.collection_id"], ondelete="CASCADE"
+        ),
+        Index("ix_topic_exclusions_clip_id", "clip_id"),
+    )
+
+    topic_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    clip_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    collection_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
 
 
 class ClipTag(Base):
