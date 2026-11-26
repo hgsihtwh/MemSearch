@@ -1,34 +1,34 @@
 openapi: 3.1.0
 info:
   title: MemSearch API
-  version: 0.1.0
-  description: |
-    REST API веб-приложения MemSearch (MEM-27). Клиенты: веб-приложение (PWA), расширение браузера,
-    Telegram-бот. Архитектура и модель данных — docs/architecture.md.
+  version: 0.2.0
+  description: 'Целевой REST API MemSearch по вайрфреймам «RU · Все экраны».
 
-    **Доступ.** Учётных записей нет (ФТ-7.5 в бэклоге). Коллекция создаётся запросом `POST /collections`,
-    который возвращает ключ доступа; дальше ключ передаётся в заголовке `Authorization: Bearer <ключ>`.
-    Бот вызывает API от имени привязанной коллекции (ФТ-7.2).
+    Пользователь регистрируется по почте и паролю либо входит через Telegram.
 
-    **Ошибки** возвращаются в формате `Error` с машинным кодом `code` и текстом для пользователя `message`.
+    При первом входе создаётся личная видеоколлекция. Запросы используют Bearer access_token;
+
+    идентификатор коллекции определяется сервером по аккаунту, а не передаётся клиентом.
+
+    Автоматические темы и ручные подборки отображаются вместе через GET /groups.
+
+    Ошибки возвращаются в формате Error. Исключение — /health со статусами сервиса и БД.
+
+    Пока реализован только /health; остальные операции — спецификация для реализации.'
 servers:
-  - url: http://localhost:8000/api/v1
-    description: Локальное окружение
+- {url: 'http://localhost:8000/api/v1', description: Локальное окружение}
 security:
-  - collectionKey: []
+- {accessToken: []}
 tags:
-  - name: Сервис
-  - name: Коллекция
-  - name: Ролики
-    description: Прецеденты ПР-1, ПР-4, ПР-6
-  - name: Поиск
-    description: Прецеденты ПР-2, ПР-3, ПР-7
-  - name: Теги и темы
-    description: Прецеденты ПР-3, ПР-5
-  - name: Перенос и бот
-    description: Прецеденты ПР-4, ПР-6
-  - name: Администрирование
-
+- {name: Сервис}
+- {name: Аккаунт}
+- {name: Подборки}
+- {name: Коллекция}
+- {name: Ролики, description: 'Прецеденты ПР-1, ПР-4, ПР-6'}
+- {name: Поиск, description: 'Прецеденты ПР-2, ПР-3, ПР-7'}
+- {name: Теги и темы, description: 'Прецеденты ПР-3, ПР-5'}
+- {name: Перенос и бот, description: 'Прецеденты ПР-4, ПР-6'}
+- {name: Администрирование}
 paths:
   /health:
     get:
@@ -36,44 +36,46 @@ paths:
       summary: Проверка работоспособности
       security: []
       responses:
-        "200":
+        '200':
           description: Сервис работает
           content:
             application/json:
               schema:
                 type: object
+                required: [status, database]
                 properties:
-                  status: { type: string, example: ok }
-
-  /collections:
-    post:
-      tags: [Коллекция]
-      summary: Создать коллекцию
-      description: Первый запуск приложения на устройстве. Ключ показывается один раз; в базе хранится только его хеш.
-      security: []
-      responses:
-        "201":
-          description: Коллекция создана
+                  status: {type: string, const: ok}
+                  database: {type: string, const: ok}
+        '503':
+          description: База данных недоступна
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/CollectionCreated" }
-
+              schema:
+                type: object
+                required: [status, database]
+                properties:
+                  status: {type: string, const: error}
+                  database: {type: string, const: unavailable}
   /collection:
     get:
       tags: [Коллекция]
       summary: Сведения о коллекции и статистика
-      description: ФТ-7.4 — роликов, обработано, тем; ФТ-6.2 — прогресс обработки на главной.
+      description: 'Личная коллекция текущего пользователя: счётчики, прогресс онбординга и подключения. Коллекция
+        автоматически создаётся при регистрации или первом входе через Telegram.'
       responses:
-        "200":
+        '200':
           description: Коллекция
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/Collection" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
+              schema: {$ref: '#/components/schemas/Collection'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
     delete:
       tags: [Коллекция]
       summary: Удалить все данные коллекции
-      description: ФТ-7.3. Требует явного подтверждения в теле запроса.
+      description: Удаляет ролики, теги, автоматические темы, ручные подборки, импорт и привязку бота; очищает превью.
+        Аккаунт и его сессии сохраняются, личная коллекция становится пустой. Все фоновые записи для удалённых роликов
+        отменяются или игнорируются. Кеш поисковых выдач коллекции инвалидируется. Telegram-идентичность аккаунта
+        (способ входа) сохраняется отдельно от привязки бота.
       requestBody:
         required: true
         content:
@@ -82,125 +84,205 @@ paths:
               type: object
               required: [confirm]
               properties:
-                confirm: { type: boolean, const: true }
+                confirm: {type: boolean, const: true}
       responses:
-        "204": { description: Коллекция и все связанные данные удалены }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-
-  /clips:
-    post:
-      tags: [Ролики]
-      summary: Добавить ролики по ссылкам
-      description: |
-        ПР-1, ПР-6 (ФТ-1.1–1.5). Одна или несколько ссылок TikTok и VK. Для каждой ссылки возвращается
-        отдельный результат: добавлен, уже в коллекции или ошибка. Добавленные ролики ставятся в очередь
-        обработки (ФТ-2.5, ФТ-2.6).
+        '204': {description: Данные коллекции и подключения удалены; аккаунт сохранён}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+    patch:
+      tags: [Коллекция]
+      summary: Завершить онбординг
+      description: Вызывается при завершении или пропуске знакомства; повторный вызов идемпотентен.
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/AddClipsRequest" }
+            schema:
+              type: object
+              required: [onboarding_done]
+              properties:
+                onboarding_done: {type: boolean, const: true}
       responses:
-        "202":
+        '200':
+          description: Успешно
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Collection'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+  /clips:
+    post:
+      tags: [Ролики]
+      summary: Добавить ролики по ссылкам
+      description: 'ПР-1, ПР-6 (ФТ-1.1–1.5). Одна или несколько ссылок TikTok и VK. Для каждой ссылки возвращается
+
+        отдельный результат: добавлен, уже в коллекции или ошибка. Добавленные ролики ставятся в очередь
+
+        обработки (ФТ-2.5, ФТ-2.6).
+
+        '
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AddClipsRequest'}
+      responses:
+        '202':
           description: Ссылки приняты
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/AddClipsResponse" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "422": { $ref: "#/components/responses/ValidationError" }
+              schema: {$ref: '#/components/schemas/AddClipsResponse'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '422': {$ref: '#/components/responses/ValidationError'}
     get:
       tags: [Ролики]
       summary: Список роликов коллекции
-      description: ФТ-7.1 — «Все ролики» с сортировкой и поиском по названию; ФТ-6.2 — недавно добавленные; ФТ-1.7 — статусы.
+      description: 'Все ролики и недавно обновлённые. platforms — ИЛИ по платформам; tag_mode=any/all задаёт ИЛИ/И
+        для tag_ids. Остальные фильтры объединяются через И. Даты относятся к добавлению: added_from включительно,
+        added_to не включительно; added_from < added_to. Чужие идентификаторы возвращают 404, без доступа к чужим
+        данным. newest/oldest сортируют по added_at, updated — по updated_at; при равенстве используется id. Курсор
+        привязан к фильтрам и сортировке.'
       parameters:
-        - { name: sort, in: query, schema: { type: string, enum: [newest, oldest], default: newest } }
-        - { name: status, in: query, schema: { $ref: "#/components/schemas/ClipStatus" } }
-        - { name: topic_id, in: query, schema: { type: integer } }
-        - { name: title, in: query, description: Поиск по названию, schema: { type: string } }
-        - { $ref: "#/components/parameters/Cursor" }
-        - { $ref: "#/components/parameters/Limit" }
+      - name: sort
+        in: query
+        schema: {type: string, enum: [newest, oldest, updated], default: newest}
+      - name: topic_id
+        in: query
+        schema: {type: integer}
+      - name: title
+        in: query
+        description: Поиск по названию
+        schema: {type: string}
+      - {$ref: '#/components/parameters/Cursor'}
+      - {$ref: '#/components/parameters/Limit'}
+      - name: platforms
+        in: query
+        schema:
+          type: array
+          items: {$ref: '#/components/schemas/Platform'}
+          minItems: 1
+          maxItems: 2
+          uniqueItems: true
+        style: form
+        explode: false
+      - name: added_from
+        in: query
+        schema: {type: string, format: date-time}
+      - name: added_to
+        in: query
+        schema: {type: string, format: date-time}
+      - name: tag_ids
+        in: query
+        schema:
+          type: array
+          items: {type: integer, minimum: 1}
+          minItems: 1
+          maxItems: 50
+          uniqueItems: true
+        style: form
+        explode: false
+      - name: tag_mode
+        in: query
+        schema: {type: string, enum: [any, all], default: any}
+      - name: playlist_id
+        in: query
+        schema: {type: string, format: uuid}
+      - name: status
+        in: query
+        schema: {$ref: '#/components/schemas/ClipStatus'}
       responses:
-        "200":
+        '200':
           description: Страница роликов
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/ClipPage" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-
+              schema: {$ref: '#/components/schemas/ClipPage'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '404': {$ref: '#/components/responses/NotFound'}
   /clips/statuses:
     get:
       tags: [Ролики]
       summary: Статусы обработки нескольких роликов
       description: ФТ-1.7 — опрос статусов без перезагрузки страницы.
       parameters:
-        - name: ids
-          in: query
-          required: true
-          style: form
-          explode: false
-          schema: { type: array, items: { type: integer }, maxItems: 200 }
+      - name: ids
+        in: query
+        required: true
+        style: form
+        explode: false
+        schema:
+          type: array
+          items: {type: integer, format: int64, minimum: 1}
+          minItems: 1
+          maxItems: 200
+          uniqueItems: true
       responses:
-        "200":
+        '200':
           description: Статусы
           content:
             application/json:
               schema:
                 type: array
-                items: { $ref: "#/components/schemas/ClipStatusItem" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-
+                items: {$ref: '#/components/schemas/ClipStatusItem'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '422': {$ref: '#/components/responses/ValidationError'}
   /clips/{clip_id}:
     parameters:
-      - { $ref: "#/components/parameters/ClipId" }
+    - {$ref: '#/components/parameters/ClipId'}
     get:
       tags: [Ролики]
       summary: Карточка ролика
-      description: |
-        ФТ-4.3, ФТ-4.6, ФТ-4.7. Метаданные, описание, теги, тема, транскрипт с таймкодами и текст в кадре.
-        Если передан `q`, места совпадения с запросом размечены в `highlights` (ФТ-4.4).
+      description: "ФТ-4.3, ФТ-4.6, ФТ-4.7. Метаданные, описание, теги, тема, транскрипт с таймкодами и текст в\
+        \ кадре.\nЕсли передан `q`, места совпадения с запросом размечены в `highlights` (ФТ-4.4).\n При q возвращается\
+        \ полный список matches с таймкодами и matches_total; без q — пустой список и 0. Недоступный оригинал не\
+        \ удаляет сохранённые текстовые данные."
       parameters:
-        - { name: q, in: query, description: "Запрос, из которого открыта карточка", schema: { type: string } }
+      - name: q
+        in: query
+        description: Запрос, из которого открыта карточка
+        schema: {type: string, minLength: 1, maxLength: 300}
       responses:
-        "200":
+        '200':
           description: Ролик
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/ClipDetail" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "404": { $ref: "#/components/responses/NotFound" }
+              schema: {$ref: '#/components/schemas/ClipDetail'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationError'}
     delete:
       tags: [Ролики]
       summary: Удалить ролик из коллекции
       description: ФТ-1.8. Ролик и все его данные удаляются; ролик пропадает из поиска и тем.
       responses:
-        "204": { description: Удалён }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "404": { $ref: "#/components/responses/NotFound" }
-
+        '204': {description: Удалён}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationError'}
   /clips/{clip_id}/retry:
     parameters:
-      - { $ref: "#/components/parameters/ClipId" }
+    - {$ref: '#/components/parameters/ClipId'}
     post:
       tags: [Ролики]
       summary: Повторить обработку
       description: ФТ-2.7, ФТ-1.7 — кнопка «Повторить» у ролика с ошибкой.
       responses:
-        "202":
+        '202':
           description: Ролик поставлен в очередь
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/ClipStatusItem" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "404": { $ref: "#/components/responses/NotFound" }
-        "409":
+              schema: {$ref: '#/components/schemas/ClipStatusItem'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409':
           description: Ролик не в статусе failed
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/Error" }
-
+              schema: {$ref: '#/components/schemas/Error'}
+        '422': {$ref: '#/components/responses/ValidationError'}
   /clips/{clip_id}/tags:
     parameters:
-      - { $ref: "#/components/parameters/ClipId" }
+    - {$ref: '#/components/parameters/ClipId'}
     post:
       tags: [Теги и темы]
       summary: Добавить тег ролику
@@ -213,51 +295,62 @@ paths:
               type: object
               required: [name]
               properties:
-                name: { type: string, minLength: 1, maxLength: 50 }
+                name: {type: string, minLength: 1, maxLength: 24}
       responses:
-        "201":
+        '201':
           description: Тег добавлен
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/ClipTag" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "404": { $ref: "#/components/responses/NotFound" }
-
+              schema: {$ref: '#/components/schemas/ClipTag'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationError'}
   /clips/{clip_id}/tags/{tag_id}:
     parameters:
-      - { $ref: "#/components/parameters/ClipId" }
-      - { name: tag_id, in: path, required: true, schema: { type: integer } }
+    - {$ref: '#/components/parameters/ClipId'}
+    - name: tag_id
+      in: path
+      required: true
+      schema: {type: integer}
     delete:
       tags: [Теги и темы]
       summary: Убрать тег у ролика
       description: ФТ-5.2 — в том числе автоматический.
       responses:
-        "204": { description: Тег убран }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "404": { $ref: "#/components/responses/NotFound" }
-
+        '204': {description: Тег убран}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationError'}
   /search:
     post:
       tags: [Поиск]
       summary: Найти ролики по описанию
-      description: |
-        ПР-2, ПР-3 (ФТ-3.1–3.7). Гибридный поиск по фрагментам: векторный (multilingual-e5-large) и
+      description: 'ПР-2, ПР-3 (ФТ-3.1–3.7). Гибридный поиск по фрагментам: векторный (multilingual-e5-large) и
+
         полнотекстовый с нечётким совпадением. Выдача — ролики целиком, один ролик — одна карточка,
+
         с источником и цитатой «почему найден». Пустой `items` — экран «Ничего не нашли» (ФТ-3.7).
+
+        '
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/SearchRequest" }
+            schema: {$ref: '#/components/schemas/SearchRequest'}
       responses:
-        "200":
+        '200':
           description: Результаты
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/SearchResponse" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "422": { $ref: "#/components/responses/ValidationError" }
-
+              schema: {$ref: '#/components/schemas/SearchResponse'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '410':
+          description: Курсор поиска истёк; повторить запрос без cursor
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
   /search/image:
     post:
       tags: [Поиск]
@@ -271,17 +364,21 @@ paths:
               type: object
               required: [image]
               properties:
-                image: { type: string, format: binary }
-                limit: { type: integer, default: 20 }
+                image: {type: string, format: binary}
+                limit: {type: integer, default: 20}
       responses:
-        "200":
+        '200':
           description: Результаты
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/SearchResponse" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "501": { description: Функция ещё не реализована }
-
+              schema: {$ref: '#/components/schemas/SearchResponse'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '501':
+          description: Функция ещё не реализована
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '422': {$ref: '#/components/responses/ValidationError'}
   /search/feedback:
     post:
       tags: [Поиск]
@@ -291,18 +388,19 @@ paths:
         required: true
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/SearchFeedback" }
+            schema: {$ref: '#/components/schemas/SearchFeedback'}
       responses:
-        "204": { description: Оценка сохранена }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-
+        '204': {description: Оценка сохранена}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '422': {$ref: '#/components/responses/ValidationError'}
   /topics:
     get:
       tags: [Теги и темы]
       summary: Темы коллекции
-      description: ПР-5 (ФТ-5.3, ФТ-5.5, ФТ-5.6). Если роликов меньше 20, `items` пуст и `min_clips` подсказывает порог.
+      description: Автоматические темы. Порог min_clips применяется только к автоматической кластеризации и не ограничивает
+        создание ручных подборок. q ищет по названию; фильтры дат — по created_at, теги — по меткам темы.
       responses:
-        "200":
+        '200':
           description: Темы
           content:
             application/json:
@@ -312,16 +410,48 @@ paths:
                 properties:
                   items:
                     type: array
-                    items: { $ref: "#/components/schemas/Topic" }
-                  min_clips: { type: integer, example: 20 }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-
+                    items: {$ref: '#/components/schemas/Topic'}
+                  min_clips: {type: integer, example: 20}
+                  next_cursor: {type: [string, 'null']}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+      parameters:
+      - name: q
+        in: query
+        schema: {type: string, maxLength: 300}
+      - name: sort
+        in: query
+        schema: {type: string, enum: [most_clips, newest, oldest, name], default: most_clips}
+      - name: created_from
+        in: query
+        schema: {type: string, format: date-time}
+      - name: created_to
+        in: query
+        schema: {type: string, format: date-time}
+      - name: tag_ids
+        in: query
+        schema:
+          type: array
+          items: {type: integer, minimum: 1}
+          minItems: 1
+          maxItems: 50
+          uniqueItems: true
+        style: form
+        explode: false
+      - name: tag_mode
+        in: query
+        schema: {type: string, enum: [any, all], default: any}
+      - {$ref: '#/components/parameters/Cursor'}
+      - {$ref: '#/components/parameters/Limit'}
   /topics/{topic_id}:
     parameters:
-      - { name: topic_id, in: path, required: true, schema: { type: integer } }
+    - name: topic_id
+      in: path
+      required: true
+      schema: {type: integer}
     patch:
       tags: [Теги и темы]
-      summary: Переименовать тему
+      summary: Переименовать тему или изменить её теги
       description: ФТ-5.4. Пользовательское название сохраняется при пересчёте тем.
       requestBody:
         required: true
@@ -329,24 +459,30 @@ paths:
           application/json:
             schema:
               type: object
-              required: [name]
               properties:
-                name: { type: string, minLength: 1, maxLength: 60 }
+                name: {type: string, minLength: 1, maxLength: 60, pattern: \S}
+                tag_ids:
+                  type: array
+                  items: {type: integer, minimum: 1}
+                  uniqueItems: true
+                  maxItems: 50
+              minProperties: 1
+              additionalProperties: false
       responses:
-        "200":
+        '200':
           description: Тема
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/Topic" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "404": { $ref: "#/components/responses/NotFound" }
-
+              schema: {$ref: '#/components/schemas/Topic'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationError'}
   /tags:
     get:
       tags: [Теги и темы]
       summary: Теги коллекции
       responses:
-        "200":
+        '200':
           description: Теги с числом роликов
           content:
             application/json:
@@ -354,19 +490,29 @@ paths:
                 type: array
                 items:
                   allOf:
-                    - { $ref: "#/components/schemas/Tag" }
-                    - type: object
-                      properties:
-                        clips: { type: integer }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-
+                  - {$ref: '#/components/schemas/Tag'}
+                  - type: object
+                    properties:
+                      clips: {type: integer}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+      parameters:
+      - name: q
+        in: query
+        description: Подстрока имени для предложений при вводе тега
+        schema: {type: string, maxLength: 24}
+      description: Теги текущей коллекции, включая подходящие по q предложения. Для уже существующего имени POST
+        тега идемпотентно связывает его с роликом.
   /imports:
     post:
       tags: [Перенос и бот]
       summary: Начать или продолжить перенос «Избранного»
-      description: |
-        ПР-4 (ФТ-1.6). Расширение создаёт сессию переноса; если незавершённая сессия для платформы уже есть,
+      description: 'ПР-4 (ФТ-1.6). Расширение создаёт сессию переноса; если незавершённая сессия для платформы уже
+        есть,
+
         она возвращается вместе с `cursor` — расширение продолжает с места остановки.
+
+        '
       requestBody:
         required: true
         content:
@@ -375,24 +521,644 @@ paths:
               type: object
               required: [platform, scope]
               properties:
-                platform: { $ref: "#/components/schemas/Platform" }
-                scope: { type: string, enum: [last200, year, all] }
-                total: { type: integer, description: "Сколько роликов найдено на странице, если известно" }
+                platform: {$ref: '#/components/schemas/Platform'}
+                scope: {type: string, enum: [last200, year, all]}
+                total: {type: integer, description: 'Сколько роликов найдено на странице, если известно'}
       responses:
-        "200":
+        '200':
           description: Сессия переноса
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/ImportSession" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-
+              schema: {$ref: '#/components/schemas/ImportSession'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '422': {$ref: '#/components/responses/ValidationError'}
   /imports/{import_id}/batches:
     parameters:
-      - { name: import_id, in: path, required: true, schema: { type: string, format: uuid } }
+    - name: import_id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
     post:
       tags: [Перенос и бот]
       summary: Отправить пачку ссылок переноса
-      description: До 100 ссылок за запрос. Уже добавленные ролики пропускаются. Ролики переноса идут в очередь full.
+      description: 'До 100 ссылок за запрос. Уже добавленные ролики пропускаются. Сначала выполняется
+
+        быстрый проход по метаданным, затем полная обработка в очереди full.
+
+        Последняя пачка передаётся с `finished=true`; она может содержать пустой `urls`.
+
+        Завершение переноса ссылок не означает завершения обработки роликов.
+
+        '
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [urls]
+              anyOf:
+              - properties:
+                  urls: {minItems: 1}
+              - required: [finished]
+                properties:
+                  finished: {const: true}
+              properties:
+                urls:
+                  type: array
+                  minItems: 0
+                  maxItems: 100
+                  items: {type: string, format: uri}
+                cursor: {type: string, description: Место на странице после этой пачки}
+                finished: {type: boolean, default: false, description: Все выбранные ссылки отправлены; завершает
+                    сессию переноса}
+      responses:
+        '200':
+          description: Пачка принята
+          content:
+            application/json:
+              schema:
+                allOf:
+                - {$ref: '#/components/schemas/ImportSession'}
+                - type: object
+                  properties:
+                    added: {type: integer}
+                    skipped: {type: integer}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+  /telegram/link-code:
+    post:
+      tags: [Перенос и бот]
+      summary: Получить ссылку для подключения Telegram-бота
+      description: Одноразовый код привязки к аккаунту текущей сессии действует 10 минут. Новый код отменяет предыдущий.
+        Возвращает ссылку на бота; клиент может опрашивать GET /collection для отображения успешного подключения.
+      responses:
+        '201':
+          description: Код создан
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, url, expires_at]
+                properties:
+                  code: {type: string}
+                  url: {type: string, format: uri}
+                  expires_at: {type: string, format: date-time}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+  /telegram/link:
+    post:
+      tags: [Перенос и бот]
+      summary: Подтвердить привязку бота (вызывает бот)
+      description: Доверенный бот передаёт одноразовый код и личность из Telegram. Код создаёт TelegramLink текущей
+        коллекции и связывает Telegram-идентичность с аккаунтом для последующего входа. Если она уже принадлежит
+        другому аккаунту — 409, автоматического объединения нет. Пользовательские access/refresh-токены боту не
+        выдаются.
+      security:
+      - {botToken: []}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code, telegram_user_id, username]
+              properties:
+                code: {type: string, minLength: 1}
+                telegram_user_id: {type: integer, format: int64, minimum: 1}
+                username: {type: [string, 'null']}
+      responses:
+        '200':
+          description: Успешно
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TelegramConnection'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404':
+          description: Код не найден или истёк
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+    delete:
+      tags: [Перенос и бот]
+      summary: Отключить Telegram
+      description: 'Отменяет TelegramLink и неиспользованные коды, прекращает добавление роликов этим ботом. UserIdentity
+        для входа в аккаунт сохраняется: отключение бота не лишает пользователя способа входа.'
+      responses:
+        '204': {description: Успешно}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /admin/jobs:
+    get:
+      tags: [Администрирование]
+      summary: Очередь обработки и ошибки
+      description: ФТ-8.1. Доступно по ключу администратора.
+      security:
+      - {adminToken: []}
+      parameters:
+      - name: status
+        in: query
+        schema: {type: string, enum: [queued, running, done, failed]}
+      - {$ref: '#/components/parameters/Limit'}
+      responses:
+        '200':
+          description: Задачи обработки
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: '#/components/schemas/ProcessingJob'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+  /admin/feedback:
+    get:
+      tags: [Администрирование]
+      summary: Выгрузка оценок поиска
+      description: ФТ-3.8 — выгрузка для администратора.
+      security:
+      - {adminToken: []}
+      responses:
+        '200':
+          description: CSV с оценками
+          content:
+            text/csv:
+              schema: {type: string}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /auth/register:
+    post:
+      tags: [Аккаунт]
+      summary: Создать аккаунт и личную коллекцию
+      description: Имя первоначально берётся из части email до @; его можно изменить через PATCH /me. Email уникален
+        без учёта регистра. Коллекция создаётся атомарно вместе с аккаунтом.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/Credentials'}
+      responses:
+        '201':
+          description: Успешно
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AuthSession'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+  /auth/login:
+    post:
+      tags: [Аккаунт]
+      summary: Войти по почте и паролю
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: {type: string, format: email, maxLength: 254}
+                password: {type: string, minLength: 1, maxLength: 128, writeOnly: true}
+      responses:
+        '200':
+          description: Успешно
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AuthSession'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+  /auth/refresh:
+    post:
+      tags: [Аккаунт]
+      summary: Обновить сессию
+      description: Проверяется refresh_token из тела запроса. Однократная ротация; использованная пара больше не
+        действует.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token: {type: string, minLength: 1}
+      responses:
+        '200':
+          description: Успешно
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AuthSession'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /auth/logout:
+    post:
+      tags: [Аккаунт]
+      summary: Выйти из текущей сессии
+      description: Отзывает access- и refresh-токены текущей сессии на сервере.
+      responses:
+        '204': {description: Успешно}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /auth/password/forgot:
+    post:
+      tags: [Аккаунт]
+      summary: Отправить ссылку сброса пароля
+      description: Ответ одинаков для существующей и неизвестной почты. Ссылка одноразовая, действует 30 минут;
+        повторная отправка не раньше чем через 45 секунд. Новый запрос аннулирует предыдущую ссылку.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: {type: string, format: email, maxLength: 254}
+      responses:
+        '202':
+          description: Успешно
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [message, retry_after, expires_in]
+                properties:
+                  message: {type: string}
+                  retry_after: {type: integer, const: 45}
+                  expires_in: {type: integer, const: 1800}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+  /auth/password/reset:
+    post:
+      tags: [Аккаунт]
+      summary: Установить новый пароль
+      description: Одноразовый токен из ссылки. После сброса все сессии аккаунта отзываются; затем нужен обычный
+        вход.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, password]
+              properties:
+                token: {type: string, minLength: 1}
+                password: {type: string, minLength: 8, maxLength: 128, writeOnly: true}
+      responses:
+        '204': {description: Успешно}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '400': {$ref: '#/components/responses/InvalidToken'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+  /me:
+    get:
+      tags: [Аккаунт]
+      summary: Получить профиль
+      responses:
+        '200':
+          description: Успешно
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/User'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+    patch:
+      tags: [Аккаунт]
+      summary: Изменить имя профиля
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [display_name]
+              properties:
+                display_name: {type: string, minLength: 1, maxLength: 60, pattern: \S}
+      responses:
+        '200':
+          description: Успешно
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/User'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+  /auth/telegram:
+    post:
+      tags: [Аккаунт]
+      summary: Начать вход через Telegram
+      description: Возвращает ссылку на бота с одноразовым идентификатором попытки. Это вход в аккаунт, отдельно
+        от подключения бота для пересылки роликов.
+      security: []
+      responses:
+        '201':
+          description: Успешно
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TelegramLoginChallenge'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+  /auth/telegram/{challenge_id}:
+    parameters:
+    - name: challenge_id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    get:
+      tags: [Аккаунт]
+      summary: Дождаться подтверждения входа
+      description: Опрос не чаще poll_after секунд с X-Telegram-Login-Token. При approved сессия выдаётся один раз
+        и попытка становится consumed.
+      responses:
+        '200':
+          description: Успешно
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - type: object
+                  required: [status]
+                  properties:
+                    status: {type: string, enum: [pending, expired, consumed]}
+                - type: object
+                  required: [status, session]
+                  properties:
+                    status: {type: string, const: approved}
+                    session: {$ref: '#/components/schemas/AuthSession'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+      security:
+      - {telegramLoginToken: []}
+  /auth/telegram/{challenge_id}/confirm:
+    parameters:
+    - name: challenge_id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    post:
+      tags: [Аккаунт]
+      summary: Подтвердить Telegram-вход из бота
+      description: 'Доверенный бот передаёт личность из события Telegram. Аккаунт определяется по внешней Telegram-идентичности
+        (UserIdentity), иначе создаётся аккаунт с email=null, личная коллекция и UserIdentity. Совпадение имени
+        не объединяет аккаунты. Вход сам по себе не включает приём ссылок ботом: для этого используется /telegram/link-code.
+        Сессия выдаётся только инициировавшему клиенту через защищённый опрос.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [telegram_user_id, username, display_name]
+              properties:
+                telegram_user_id: {type: integer, format: int64, minimum: 1}
+                username: {type: [string, 'null']}
+                display_name: {type: string, minLength: 1, maxLength: 60, pattern: \S}
+      responses:
+        '204': {description: Успешно}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '400': {$ref: '#/components/responses/InvalidToken'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+      security:
+      - {botToken: []}
+  /playlists:
+    get:
+      tags: [Подборки]
+      summary: Список ручных подборок
+      parameters:
+      - name: q
+        in: query
+        schema: {type: string, maxLength: 300}
+      - name: sort
+        in: query
+        schema: {type: string, enum: [most_clips, newest, oldest, name], default: most_clips}
+      - name: created_from
+        in: query
+        schema: {type: string, format: date-time}
+      - name: created_to
+        in: query
+        schema: {type: string, format: date-time}
+      - name: tag_ids
+        in: query
+        schema:
+          type: array
+          items: {type: integer, minimum: 1}
+          minItems: 1
+          maxItems: 50
+          uniqueItems: true
+        style: form
+        explode: false
+      - name: tag_mode
+        in: query
+        schema: {type: string, enum: [any, all], default: any}
+      - {$ref: '#/components/parameters/Cursor'}
+      - {$ref: '#/components/parameters/Limit'}
+      responses:
+        '200':
+          description: Успешно
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: {$ref: '#/components/schemas/Playlist'}
+                  next_cursor: {type: [string, 'null']}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+    post:
+      tags: [Подборки]
+      summary: Создать ручную подборку
+      description: Создаётся пустая подборка текущей коллекции. Один ролик может входить в несколько ручных подборок.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: {type: string, minLength: 1, maxLength: 60, pattern: \S}
+                tag_ids:
+                  type: array
+                  items: {type: integer, minimum: 1}
+                  uniqueItems: true
+                  maxItems: 50
+      responses:
+        '201':
+          description: Успешно
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Playlist'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /playlists/{playlist_id}:
+    parameters:
+    - name: playlist_id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    get:
+      tags: [Подборки]
+      summary: Карточка ручной подборки
+      responses:
+        '200':
+          description: Успешно
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Playlist'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+    patch:
+      tags: [Подборки]
+      summary: Переименовать подборку или изменить её теги
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: {type: string, minLength: 1, maxLength: 60, pattern: \S}
+                tag_ids:
+                  type: array
+                  items: {type: integer, minimum: 1}
+                  uniqueItems: true
+                  maxItems: 50
+              minProperties: 1
+              additionalProperties: false
+      responses:
+        '200':
+          description: Успешно
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Playlist'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    delete:
+      tags: [Подборки]
+      summary: Удалить ручную подборку
+      description: Удаляет подборку и связи с роликами; сами ролики остаются в личной коллекции.
+      responses:
+        '204': {description: Успешно}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+  /playlists/{playlist_id}/clips/{clip_id}:
+    parameters:
+    - name: playlist_id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    - {$ref: '#/components/parameters/ClipId'}
+    put:
+      tags: [Подборки]
+      summary: Добавить ролик в ручную подборку
+      description: Идемпотентно. Подборка и ролик должны принадлежать текущей коллекции.
+      responses:
+        '204': {description: Успешно}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+    delete:
+      tags: [Подборки]
+      summary: Убрать ролик из ручной подборки
+      description: Идемпотентно для существующих ролика и подборки. Удаляет только связь; ролик сохраняется.
+      responses:
+        '204': {description: Успешно}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+  /topics/{topic_id}/clips/{clip_id}:
+    parameters:
+    - name: topic_id
+      in: path
+      required: true
+      schema: {type: integer, minimum: 1}
+    - {$ref: '#/components/parameters/ClipId'}
+    delete:
+      tags: [Подборки]
+      summary: Исключить ролик из автоматической темы
+      description: Ролик остаётся в коллекции. Исключение хранится отдельно и сохраняется при пересчёте существующей
+        темы; автоматическая кластеризация не возвращает ролик в эту тему.
+      responses:
+        '204': {description: Успешно}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+  /groups:
+    get:
+      tags: [Подборки]
+      summary: 'Все подборки: автоматические темы и ручные'
+      description: 'Общий экран «Все подборки». kind определяет тип id: auto — целочисленный topic_id, manual —
+        UUID playlist_id. Поиск q по названию, сортировка и пагинация применяются к объединённому списку; идентичные
+        имена допустимы. Курсор содержит тип и id, чтобы избежать коллизий. Переименование и просмотр роликов используют
+        маршруты соответствующего типа.'
+      parameters:
+      - name: q
+        in: query
+        schema: {type: string, maxLength: 300}
+      - name: sort
+        in: query
+        schema: {type: string, enum: [most_clips, newest, oldest, name], default: most_clips}
+      - name: created_from
+        in: query
+        schema: {type: string, format: date-time}
+      - name: created_to
+        in: query
+        schema: {type: string, format: date-time}
+      - name: tag_ids
+        in: query
+        schema:
+          type: array
+          items: {type: integer, minimum: 1}
+          minItems: 1
+          maxItems: 50
+          uniqueItems: true
+        style: form
+        explode: false
+      - name: tag_mode
+        in: query
+        schema: {type: string, enum: [any, all], default: any}
+      - {$ref: '#/components/parameters/Cursor'}
+      - {$ref: '#/components/parameters/Limit'}
+      - name: kind
+        in: query
+        schema: {type: string, enum: [auto, manual]}
+      responses:
+        '200':
+          description: Успешно
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, total, min_clips]
+                properties:
+                  items:
+                    type: array
+                    items: {$ref: '#/components/schemas/Group'}
+                  next_cursor: {type: [string, 'null']}
+                  total: {type: integer, minimum: 0}
+                  min_clips: {type: integer, minimum: 1, description: Порог только автоматических тем}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+  /clips/validate:
+    post:
+      tags: [Ролики]
+      summary: Проверить ссылки до добавления
+      description: 'Проверяет поддерживаемую платформу, формат ссылки и дубли в текущей коллекции без скачивания
+        и создания ролика. clip_id обязателен для duplicate, error — для error. Результат предварительный: POST
+        /clips повторно проверяет ссылки; сетевую доступность ролика устанавливает загрузчик.'
       requestBody:
         required: true
         content:
@@ -403,201 +1169,215 @@ paths:
               properties:
                 urls:
                   type: array
+                  items: {type: string}
                   minItems: 1
-                  maxItems: 100
-                  items: { type: string, format: uri }
-                cursor: { type: string, description: Место на странице после этой пачки }
+                  maxItems: 10
       responses:
-        "200":
-          description: Пачка принята
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - { $ref: "#/components/schemas/ImportSession" }
-                  - type: object
-                    properties:
-                      added: { type: integer }
-                      skipped: { type: integer }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "404": { $ref: "#/components/responses/NotFound" }
-
-  /telegram/link-code:
-    post:
-      tags: [Перенос и бот]
-      summary: Получить ссылку для подключения Telegram-бота
-      description: ФТ-7.2. Одноразовый код действует 10 минут; ссылка вида `https://t.me/<бот>?start=<код>`.
-      responses:
-        "201":
-          description: Код создан
+        '200':
+          description: Успешно
           content:
             application/json:
               schema:
                 type: object
-                required: [code, url, expires_at]
+                required: [items]
                 properties:
-                  code: { type: string }
-                  url: { type: string, format: uri }
-                  expires_at: { type: string, format: date-time }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-
-  /telegram/link:
+                  items:
+                    type: array
+                    items: {$ref: '#/components/schemas/ClipLinkValidation'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+  /bot/clips:
     post:
       tags: [Перенос и бот]
-      summary: Подтвердить привязку бота (вызывает бот)
-      description: Бот передаёт код из команды `/start` и id пользователя Telegram; ответ содержит ключ коллекции для дальнейших вызовов бота.
-      security:
-        - botToken: []
+      summary: Добавить ссылки от Telegram-бота
+      description: X-Bot-Token удостоверяет сервис бота; telegram_user_id берётся только из события Telegram. Сервер
+        находит привязанный аккаунт и его коллекцию, ставит новые ролики вне очереди массового переноса. Произвольный
+        collection_id не принимается.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [code, telegram_user_id]
+              required: [telegram_user_id, urls]
               properties:
-                code: { type: string }
-                telegram_user_id: { type: integer, format: int64 }
+                telegram_user_id: {type: integer, format: int64, minimum: 1}
+                urls:
+                  type: array
+                  items: {type: string}
+                  minItems: 1
+                  maxItems: 10
       responses:
-        "200":
-          description: Бот привязан
+        '202':
+          description: Успешно
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AddClipsResponse'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '404': {$ref: '#/components/responses/NotFound'}
+      security:
+      - {botToken: []}
+  /me/password:
+    post:
+      tags: [Аккаунт]
+      summary: Добавить вход по почте к Telegram-аккаунту
+      description: Только для аккаунта без пароля. Подтверждённая почта должна совпадать с токеном и не принадлежать
+        другому аккаунту.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password, token]
+              properties:
+                email: {type: string, format: email, maxLength: 254}
+                password: {type: string, minLength: 8, maxLength: 128, writeOnly: true}
+                token: {type: string, minLength: 1, description: Одноразовый токен подтверждения почты из POST /me/email-code}
+      responses:
+        '200':
+          description: Успешно
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/User'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '400': {$ref: '#/components/responses/InvalidToken'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /me/email-code:
+    post:
+      tags: [Аккаунт]
+      summary: Подтвердить почту для входа
+      description: Только для добавления почты к Telegram-аккаунту. Одноразовая ссылка на 30 минут, привязана к
+        аккаунту и email; её токен передаётся в POST /me/password. Повторная отправка через 45 секунд.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: {type: string, format: email, maxLength: 254}
+      responses:
+        '202':
+          description: Успешно
           content:
             application/json:
               schema:
                 type: object
-                required: [collection_key]
+                required: [message, retry_after, expires_in]
                 properties:
-                  collection_key: { type: string }
-        "404": { description: Код не найден или истёк }
-
-  /admin/jobs:
-    get:
-      tags: [Администрирование]
-      summary: Очередь обработки и ошибки
-      description: ФТ-8.1. Доступно по ключу администратора.
-      security:
-        - adminToken: []
-      parameters:
-        - { name: status, in: query, schema: { type: string, enum: [queued, running, done, failed] } }
-        - { $ref: "#/components/parameters/Limit" }
-      responses:
-        "200":
-          description: Задачи обработки
-          content:
-            application/json:
-              schema:
-                type: array
-                items: { $ref: "#/components/schemas/ProcessingJob" }
-
-  /admin/feedback:
-    get:
-      tags: [Администрирование]
-      summary: Выгрузка оценок поиска
-      description: ФТ-3.8 — выгрузка для администратора.
-      security:
-        - adminToken: []
-      responses:
-        "200":
-          description: CSV с оценками
-          content:
-            text/csv:
-              schema: { type: string }
-
+                  message: {type: string}
+                  retry_after: {type: integer, const: 45}
+                  expires_in: {type: integer, const: 1800}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
 components:
   securitySchemes:
-    collectionKey:
-      type: http
-      scheme: bearer
-      description: Ключ коллекции из `POST /collections` или из привязки бота
-    botToken:
+    botToken: {type: apiKey, in: header, name: X-Bot-Token}
+    adminToken: {type: apiKey, in: header, name: X-Admin-Token}
+    accessToken: {type: http, scheme: bearer, description: Непрозрачный access_token пользовательской сессии; личная
+        коллекция определяется сервером}
+    telegramLoginToken:
       type: apiKey
       in: header
-      name: X-Bot-Token
-    adminToken:
-      type: apiKey
-      in: header
-      name: X-Admin-Token
-
+      name: X-Telegram-Login-Token
+      description: Секрет опроса конкретной попытки входа из POST /auth/telegram; не идентификатор аккаунта
   parameters:
     ClipId:
       name: clip_id
       in: path
       required: true
-      schema: { type: integer }
+      schema: {type: integer}
     Cursor:
       name: cursor
       in: query
       description: Курсор следующей страницы из предыдущего ответа
-      schema: { type: string }
+      schema: {type: string}
     Limit:
       name: limit
       in: query
-      schema: { type: integer, minimum: 1, maximum: 100, default: 30 }
-
+      schema: {type: integer, minimum: 1, maximum: 100, default: 30}
   responses:
     Unauthorized:
-      description: Нет ключа коллекции или он неверный
+      description: Отсутствует, истёк или отозван требуемый токен пользователя, бота или администратора
       content:
         application/json:
-          schema: { $ref: "#/components/schemas/Error" }
+          schema: {$ref: '#/components/schemas/Error'}
     NotFound:
       description: Не найдено в этой коллекции
       content:
         application/json:
-          schema: { $ref: "#/components/schemas/Error" }
+          schema: {$ref: '#/components/schemas/Error'}
     ValidationError:
       description: Неверные данные запроса
       content:
         application/json:
-          schema: { $ref: "#/components/schemas/Error" }
-
+          schema: {$ref: '#/components/schemas/Error'}
+    Conflict:
+      description: Конфликт с текущим состоянием
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    InvalidToken:
+      description: Одноразовый токен неверен, истёк или уже использован
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    TooManyRequests:
+      description: Слишком много попыток; повторить через Retry-After секунд
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+      headers:
+        Retry-After:
+          schema: {type: integer, minimum: 1}
   schemas:
     Error:
       type: object
       required: [code, message]
       properties:
-        code: { type: string, example: unsupported_url }
-        message: { type: string, example: Поддерживаются ссылки TikTok и VK }
-
-    Platform:
-      type: string
-      enum: [tiktok, vk]
-
+        code: {type: string, example: unsupported_url}
+        message: {type: string, example: Поддерживаются ссылки TikTok и VK}
+    Platform: {type: string, enum: [tiktok, vk]}
     ClipStatus:
       type: string
-      description: Статус обработки (ФТ-1.7). В интерфейсе queued — «в очереди», downloading…enriching — «обрабатывается», ready — «готов», failed — «ошибка».
+      description: Статус обработки (ФТ-1.7). В интерфейсе queued — «в очереди», downloading…enriching — «обрабатывается»,
+        ready — «готов», failed — «ошибка».
       enum: [queued, downloading, transcribing, indexing, enriching, ready, failed]
-
-    MatchSource:
-      type: string
-      description: Источник совпадения (ФТ-3.5)
-      enum: [speech, caption, title, ocr, scene]
-
-    CollectionCreated:
-      type: object
-      required: [id, key]
-      properties:
-        id: { type: string, format: uuid }
-        key: { type: string, description: Ключ доступа; показывается один раз }
-
+    MatchSource: {type: string, description: Источник совпадения (ФТ-3.5), enum: [speech, caption, title, ocr, scene]}
     Collection:
       type: object
-      required: [id, created_at, stats]
+      required: [id, created_at, onboarding_done, stats, connections]
       properties:
-        id: { type: string, format: uuid }
-        created_at: { type: string, format: date-time }
-        onboarding_done: { type: boolean }
-        telegram_linked: { type: boolean }
+        id: {type: string, format: uuid}
+        created_at: {type: string, format: date-time}
+        onboarding_done: {type: boolean}
         stats:
           type: object
-          required: [clips, ready, processing, failed, topics]
+          required: [clips, ready, processing, failed, topics, searchable, playlists, processed]
           properties:
-            clips: { type: integer }
-            ready: { type: integer }
-            processing: { type: integer }
-            failed: { type: integer }
-            topics: { type: integer }
-
+            clips: {type: integer}
+            ready: {type: integer, description: 'Ролики именно в статусе ready; для прогресса использовать processed,
+                для доступности поиска — searchable'}
+            processing: {type: integer}
+            failed: {type: integer}
+            topics: {type: integer}
+            searchable: {type: integer, minimum: 0, description: 'Ролики с проиндексированными данными, включая
+                ещё обрабатываемые'}
+            playlists: {type: integer, minimum: 0, description: Число ручных подборок}
+            processed: {type: integer, minimum: 0, description: 'Полный проход завершён, включая ролики на обогащении;
+                счётчик «обработано» в профиле'}
+        connections:
+          type: object
+          required: [telegram, extension]
+          properties:
+            telegram: {$ref: '#/components/schemas/TelegramConnection'}
+            extension: {$ref: '#/components/schemas/ExtensionConnection'}
     AddClipsRequest:
       type: object
       required: [urls]
@@ -605,211 +1385,409 @@ components:
         urls:
           type: array
           minItems: 1
-          maxItems: 100
-          items: { type: string }
-          example: ["https://www.tiktok.com/@user/video/7693220621068684562"]
+          maxItems: 10
+          items: {type: string}
+          example: ['https://www.tiktok.com/@user/video/7693220621068684562']
         source:
           type: string
-          enum: [paste, share, bot]
+          enum: [paste, share]
           default: paste
-          description: Откуда пришла ссылка; share и bot обрабатываются вне очереди переноса (ФТ-2.6)
-
+          description: Ручная вставка или Web Share Target. Ссылки бота принимает /bot/clips; массовый перенос —
+            /imports.
     AddClipResult:
       type: object
       required: [url, result]
       properties:
-        url: { type: string }
-        result: { type: string, enum: [added, duplicate, error] }
-        clip_id: { type: integer, description: Для added и duplicate }
-        error: { $ref: "#/components/schemas/Error" }
-
+        url: {type: string}
+        result: {type: string, enum: [added, duplicate, error]}
+        clip_id: {type: integer, description: Для added и duplicate}
+        error: {$ref: '#/components/schemas/Error'}
+      allOf:
+      - if:
+          properties:
+            result: {enum: [added, duplicate]}
+        then: {required: [clip_id]}
+      - if:
+          properties:
+            result: {const: error}
+        then: {required: [error]}
     AddClipsResponse:
       type: object
       required: [items]
       properties:
         items:
           type: array
-          items: { $ref: "#/components/schemas/AddClipResult" }
-
+          items: {$ref: '#/components/schemas/AddClipResult'}
     ClipStatusItem:
       type: object
-      required: [id, status]
+      required: [id, status, searchable, progress]
       properties:
-        id: { type: integer }
-        status: { $ref: "#/components/schemas/ClipStatus" }
-        error: { type: [string, "null"] }
-
+        id: {type: integer}
+        status: {$ref: '#/components/schemas/ClipStatus'}
+        searchable: {type: boolean, description: Есть проиндексированные данные для поиска; может быть true до статуса
+            ready}
+        error: {type: [string, 'null']}
+        progress: {$ref: '#/components/schemas/ProcessingProgress'}
     ClipSummary:
       type: object
-      required: [id, platform, url, status, added_at]
+      required: [id, platform, url, status, searchable, added_at, updated_at, tags, topic, progress]
       properties:
-        id: { type: integer }
-        platform: { $ref: "#/components/schemas/Platform" }
-        url: { type: string, format: uri }
-        title: { type: [string, "null"] }
-        author: { type: [string, "null"] }
-        thumbnail_url: { type: [string, "null"], format: uri }
-        duration: { type: [number, "null"] }
-        status: { $ref: "#/components/schemas/ClipStatus" }
-        summary: { type: [string, "null"], description: Краткое описание (1.0) }
-        added_at: { type: string, format: date-time }
-
+        id: {type: integer}
+        platform: {$ref: '#/components/schemas/Platform'}
+        url: {type: string, format: uri}
+        title: {type: [string, 'null']}
+        author: {type: [string, 'null']}
+        thumbnail_url: {type: [string, 'null'], format: uri}
+        duration: {type: [number, 'null']}
+        status: {$ref: '#/components/schemas/ClipStatus'}
+        searchable: {type: boolean, description: Ролик уже доступен для поиска, даже если полная обработка ещё идёт: null}
+        summary: {type: [string, 'null'], description: Краткое описание (1.0)}
+        added_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        tags:
+          type: array
+          items: {$ref: '#/components/schemas/ClipTag'}
+        topic:
+          oneOf:
+          - {$ref: '#/components/schemas/Topic'}
+          - {type: 'null'}
+        progress: {$ref: '#/components/schemas/ProcessingProgress'}
     ClipPage:
       type: object
       required: [items]
       properties:
         items:
           type: array
-          items: { $ref: "#/components/schemas/ClipSummary" }
-        next_cursor: { type: [string, "null"] }
-        total: { type: integer }
-
+          items: {$ref: '#/components/schemas/ClipSummary'}
+        next_cursor: {type: [string, 'null']}
+        total: {type: integer}
     Tag:
       type: object
       required: [id, name]
       properties:
-        id: { type: integer }
-        name: { type: string }
-
+        id: {type: integer}
+        name: {type: string, minLength: 1, maxLength: 24}
     ClipTag:
       allOf:
-        - { $ref: "#/components/schemas/Tag" }
-        - type: object
-          required: [source]
-          properties:
-            source: { type: string, enum: [auto, user] }
-
+      - {$ref: '#/components/schemas/Tag'}
+      - type: object
+        required: [source]
+        properties:
+          source: {type: string, enum: [auto, user]}
     Topic:
       type: object
-      required: [id, name, clips]
+      required: [id, name, clips, kind, created_at, tag_ids]
       properties:
-        id: { type: integer }
-        name: { type: string }
-        name_source: { type: string, enum: [auto, user] }
-        keywords: { type: array, items: { type: string } }
-        clips: { type: integer }
-        preview_urls: { type: array, maxItems: 4, items: { type: string, format: uri } }
-
+        id: {type: integer}
+        name: {type: string}
+        name_source: {type: string, enum: [auto, user]}
+        keywords:
+          type: array
+          items: {type: string}
+        clips: {type: integer}
+        preview_urls:
+          type: array
+          maxItems: 4
+          items: {type: string, format: uri}
+        kind: {type: string, const: auto}
+        created_at: {type: string, format: date-time}
+        tag_ids:
+          type: array
+          items: {type: integer, minimum: 1}
+          uniqueItems: true
+      description: Автоматическая тема. name_source=user означает переименование пользователем, а не ручную подборку.
     TranscriptSegment:
       type: object
       required: [start, end, text]
       properties:
-        start: { type: number }
-        end: { type: number }
-        text: { type: string }
-
+        start: {type: number}
+        end: {type: number}
+        text: {type: string}
     Highlight:
       type: object
       description: Место совпадения с запросом (ФТ-4.4)
-      required: [source, start_char, end_char]
+      required: [source, segment_index, start_char, end_char]
       properties:
-        source: { type: string, enum: [speech, ocr] }
-        segment_index: { type: integer, description: Индекс фразы транскрипта или кадра }
-        start_char: { type: integer }
-        end_char: { type: integer }
-
+        source: {type: string, enum: [speech, ocr]}
+        segment_index: {type: integer, minimum: 0, description: Индекс с нуля в transcript для speech или в frame_texts
+            для ocr}
+        start_char: {type: integer, minimum: 0, description: Начало диапазона в символах Unicode, включительно: null}
+        end_char: {type: integer, minimum: 1, description: Конец диапазона в символах Unicode, не включительно; больше start_char: null}
     ClipDetail:
       allOf:
-        - { $ref: "#/components/schemas/ClipSummary" }
-        - type: object
-          properties:
-            caption: { type: [string, "null"] }
-            published_at: { type: [string, "null"], format: date-time }
-            error: { type: [string, "null"] }
-            topic: { oneOf: [{ $ref: "#/components/schemas/Topic" }, { type: "null" }] }
-            tags:
-              type: array
-              items: { $ref: "#/components/schemas/ClipTag" }
-            transcript:
-              type: array
-              items: { $ref: "#/components/schemas/TranscriptSegment" }
-            frame_texts:
-              type: array
-              description: Текст в кадре (1.0)
-              items:
-                type: object
-                properties:
-                  t: { type: number }
-                  text: { type: string }
-            highlights:
-              type: array
-              items: { $ref: "#/components/schemas/Highlight" }
-
+      - {$ref: '#/components/schemas/ClipSummary'}
+      - type: object
+        properties:
+          caption: {type: [string, 'null']}
+          published_at: {type: [string, 'null'], format: date-time}
+          error: {type: [string, 'null']}
+          topic:
+            oneOf:
+            - {$ref: '#/components/schemas/Topic'}
+            - {type: 'null'}
+          tags:
+            type: array
+            items: {$ref: '#/components/schemas/ClipTag'}
+          transcript:
+            type: array
+            items: {$ref: '#/components/schemas/TranscriptSegment'}
+          frame_texts:
+            type: array
+            description: Текст в кадре (1.0)
+            items:
+              type: object
+              properties:
+                t: {type: number}
+                text: {type: string}
+              required: [t, text]
+          highlights:
+            type: array
+            items: {$ref: '#/components/schemas/Highlight'}
+          playback: {$ref: '#/components/schemas/Playback'}
+          matches:
+            type: array
+            items: {$ref: '#/components/schemas/ClipMatch'}
+          matches_total: {type: integer, minimum: 0}
+        required: [playback, matches, matches_total, transcript, frame_texts, highlights]
     SearchRequest:
       type: object
       required: [q]
       properties:
-        q: { type: string, minLength: 1, maxLength: 300, example: "ролик, где говорили про тихо, мирно, без суеты" }
-        topic_id: { type: integer, description: Фильтр по теме (ФТ-3.6) }
-        limit: { type: integer, minimum: 1, maximum: 50, default: 20 }
-
+        q: {type: string, minLength: 1, maxLength: 300, example: 'ролик, где говорили про тихо, мирно, без суеты'}
+        topic_id: {type: integer, description: Фильтр по теме (ФТ-3.6)}
+        limit: {type: integer, minimum: 1, maximum: 50, default: 20}
+        platforms:
+          type: array
+          items: {$ref: '#/components/schemas/Platform'}
+          minItems: 1
+          maxItems: 2
+          uniqueItems: true
+        added_from: {type: string, format: date-time}
+        added_to: {type: string, format: date-time}
+        tag_ids:
+          type: array
+          items: {type: integer, minimum: 1}
+          minItems: 1
+          maxItems: 50
+          uniqueItems: true
+        tag_mode: {type: string, enum: [any, all], default: any}
+        playlist_id: {type: string, format: uuid}
+        status: {$ref: '#/components/schemas/ClipStatus'}
+        sort: {type: string, enum: [relevance, newest, oldest, updated], default: relevance}
+        cursor: {type: string, description: next_cursor предыдущей страницы с теми же q и фильтрами}
+      description: 'platforms — ИЛИ по платформам; tag_mode=any/all задаёт ИЛИ/И для tag_ids. Остальные фильтры
+        объединяются через И. Даты относятся к добавлению: added_from включительно, added_to не включительно; added_from
+        < added_to. Чужие идентификаторы возвращают 404, без доступа к чужим данным. При topic_id и playlist_id
+        применяются оба ограничения.'
+      example: {q: кот прячет игрушку, platforms: [tiktok], tag_ids: [1, 2], tag_mode: any, sort: relevance, limit: 20}
     SearchHit:
       type: object
-      required: [clip, score, match]
+      required: [clip, score, position, match]
       properties:
-        clip: { $ref: "#/components/schemas/ClipSummary" }
-        score: { type: number, description: Итоговая оценка гибридного поиска }
-        position: { type: integer, description: "Позиция в выдаче, начиная с 1" }
+        clip: {$ref: '#/components/schemas/ClipSummary'}
+        score: {type: number, description: Итоговая оценка гибридного поиска}
+        position: {type: integer, minimum: 1, description: 'Позиция в выдаче, начиная с 1'}
         match:
           type: object
           description: Почему найден (ФТ-3.5)
-          required: [source, quote]
+          required: [source, quote, start, end]
           properties:
-            source: { $ref: "#/components/schemas/MatchSource" }
-            quote: { type: string, maxLength: 100 }
+            source: {$ref: '#/components/schemas/MatchSource'}
+            quote: {type: string, maxLength: 100}
             highlights:
               type: array
-              description: Диапазоны слов запроса в цитате
+              description: Диапазоны [start, end) в символах Unicode внутри quote, индексы с нуля; end больше start
               items:
                 type: array
-                items: { type: integer }
+                items: {type: integer, minimum: 0}
                 minItems: 2
                 maxItems: 2
-
+            start: {type: [number, 'null'], minimum: 0, description: Секунда лучшего совпадения; null для title/caption}
+            end: {type: [number, 'null'], minimum: 0, description: 'Конец совпадения; null для title/caption, не
+                меньше start'}
     SearchResponse:
       type: object
       required: [query_id, total, items]
       properties:
-        query_id: { type: string, format: uuid, description: Для привязки оценок ФТ-3.8 }
-        total: { type: integer, description: «Найдено M роликов» }
+        query_id: {type: string, format: uuid, description: Для привязки оценок ФТ-3.8}
+        total:
+          type: integer
+          description: Число уникальных роликов в зафиксированном пуле кандидатов после фильтров; не число фрагментов
+            и не исчерпывающий подсчёт всех семантических совпадений коллекции
         items:
           type: array
-          items: { $ref: "#/components/schemas/SearchHit" }
+          items: {$ref: '#/components/schemas/SearchHit'}
         suggestions:
           type: array
           description: Примеры запросов для экрана «Ничего не нашли» (ФТ-3.7)
-          items: { type: string }
-
+          items: {type: string}
+        next_cursor: {type: [string, 'null']}
+      description: Страницы одного поиска используют неизменный пул кандидатов и query_id. position — сквозная позиция
+        с единицы. Курсор истекает через 15 минут; просроченный возвращает 410 cursor_expired, запрос с изменёнными
+        фильтрами — 422. Новый запрос без курсора создаёт новый поиск.
     SearchFeedback:
       type: object
-      required: [query_id, clip_id, position, relevant]
+      required: [query_id, q, clip_id, position, relevant]
       properties:
-        query_id: { type: string, format: uuid }
-        clip_id: { type: integer }
-        position: { type: integer }
-        relevant: { type: boolean }
-
+        query_id: {type: string, format: uuid}
+        q: {type: string, minLength: 1, maxLength: 300, description: Исходный текст запроса; сохраняется в SearchFeedback.query}
+        clip_id: {type: integer}
+        position: {type: integer, minimum: 1}
+        relevant: {type: boolean}
     ImportSession:
       type: object
       required: [id, platform, scope, sent, status]
       properties:
-        id: { type: string, format: uuid }
-        platform: { $ref: "#/components/schemas/Platform" }
-        scope: { type: string, enum: [last200, year, all] }
-        total: { type: [integer, "null"] }
-        sent: { type: integer, description: «Перенесено N из M» }
-        cursor: { type: [string, "null"] }
-        status: { type: string, enum: [active, done] }
-
+        id: {type: string, format: uuid}
+        platform: {$ref: '#/components/schemas/Platform'}
+        scope: {type: string, enum: [last200, year, all]}
+        total: {type: [integer, 'null']}
+        sent: {type: integer, description: «Перенесено N из M»}
+        cursor: {type: [string, 'null']}
+        status: {type: string, enum: [active, done], description: active при finished=false в БД, done при finished=true; это статус переноса ссылок: null}
     ProcessingJob:
       type: object
       required: [id, clip_id, stage, status, attempts]
       properties:
-        id: { type: integer }
-        clip_id: { type: integer }
-        stage: { type: string, enum: [fast, full, enrich] }
-        status: { type: string, enum: [queued, running, done, failed] }
-        attempts: { type: integer }
-        error: { type: [string, "null"] }
-        started_at: { type: [string, "null"], format: date-time }
-        finished_at: { type: [string, "null"], format: date-time }
+        id: {type: integer}
+        clip_id: {type: integer}
+        stage: {type: string, enum: [fast, full, enrich]}
+        status: {type: string, enum: [queued, running, done, failed]}
+        attempts: {type: integer}
+        error: {type: [string, 'null']}
+        started_at: {type: [string, 'null'], format: date-time}
+        finished_at: {type: [string, 'null'], format: date-time}
+    User:
+      type: object
+      required: [id, display_name, email, created_at]
+      properties:
+        id: {type: string, format: uuid}
+        display_name: {type: string, minLength: 1, maxLength: 60}
+        email: {type: [string, 'null'], format: email}
+        created_at: {type: string, format: date-time}
+    AuthSession:
+      type: object
+      required: [user, access_token, token_type, expires_in, refresh_token, refresh_expires_in]
+      properties:
+        user: {$ref: '#/components/schemas/User'}
+        access_token: {type: string}
+        token_type: {type: string, const: Bearer}
+        expires_in: {type: integer, const: 900}
+        refresh_token: {type: string}
+        refresh_expires_in: {type: integer, const: 2592000}
+      description: 'Пара непрозрачных токенов: access на 15 минут, refresh на 30 дней. Токены не содержат персональных
+        данных. Refresh ротируется при каждом обновлении; старая пара отзывается.'
+    Credentials:
+      type: object
+      required: [email, password]
+      properties:
+        email: {type: string, format: email, maxLength: 254}
+        password: {type: string, minLength: 8, maxLength: 128, writeOnly: true}
+    TelegramLoginChallenge:
+      type: object
+      required: [id, url, poll_token, expires_at, poll_after]
+      properties:
+        id: {type: string, format: uuid}
+        url: {type: string, format: uri}
+        poll_token: {type: string}
+        expires_at: {type: string, format: date-time}
+        poll_after: {type: integer, const: 2}
+      description: Одноразовая попытка входа, действует 10 минут. poll_token известен только инициировавшему клиенту;
+        секрет не передаётся Telegram-боту.
+    TelegramConnection:
+      type: object
+      required: [connected, username, linked_at]
+      properties:
+        connected: {type: boolean}
+        username: {type: [string, 'null']}
+        linked_at: {type: [string, 'null'], format: date-time}
+    ExtensionConnection:
+      type: object
+      required: [last_import_at]
+      properties:
+        last_import_at:
+          type: [string, 'null']
+          format: date-time
+          description: Последняя завершённая сессия переноса; статус установки расширения определяется на клиенте
+    Playlist:
+      type: object
+      required: [id, name, kind, tag_ids, clips, created_at, updated_at]
+      properties:
+        id: {type: string, format: uuid}
+        name: {type: string, minLength: 1, maxLength: 60, pattern: \S}
+        kind: {type: string, const: manual}
+        tag_ids:
+          type: array
+          items: {type: integer, minimum: 1}
+          uniqueItems: true
+        clips: {type: integer, minimum: 0}
+        preview_urls:
+          type: array
+          items: {type: string, format: uri}
+          maxItems: 4
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    Group:
+      oneOf:
+      - {$ref: '#/components/schemas/Topic'}
+      - {$ref: '#/components/schemas/Playlist'}
+      discriminator:
+        propertyName: kind
+        mapping: {auto: '#/components/schemas/Topic', manual: '#/components/schemas/Playlist'}
+    ClipLinkValidation:
+      type: object
+      required: [url, result]
+      properties:
+        url: {type: string}
+        result: {type: string, enum: [valid, duplicate, error]}
+        clip_id: {type: integer, format: int64, minimum: 1}
+        error: {$ref: '#/components/schemas/Error'}
+      allOf:
+      - if:
+          properties:
+            result: {enum: [duplicate]}
+        then: {required: [clip_id]}
+      - if:
+          properties:
+            result: {const: error}
+        then: {required: [error]}
+    ProcessingProgress:
+      type: object
+      required: [stage, percent]
+      properties:
+        stage: {$ref: '#/components/schemas/ClipStatus'}
+        percent:
+          type: [integer, 'null']
+          minimum: 0
+          maximum: 100
+          description: null, когда точную долю работы оценить нельзя; UI показывает этап без вымышленного процента
+    Playback:
+      type: object
+      required: [status, embed_url, checked_at, reason]
+      properties:
+        status: {type: string, enum: [available, unavailable, unknown]}
+        embed_url: {type: [string, 'null'], format: uri}
+        checked_at: {type: [string, 'null'], format: date-time}
+        reason:
+          type: [string, 'null']
+          enum: [removed, private, region_blocked, embed_blocked, network_error, null]
+          description: «Оригинал удалён автором» показывается только при removed; остальные причины не означают
+            удаление
+      description: Воспроизведение только через официальный виджет TikTok/VK, без собственного хранения видео. unknown
+        — доступность не проверена; блокировка встраивания не означает удаление оригинала. Клиент обрабатывает ошибку
+        виджета и предлагает исходную ссылку. Переход к секунде доступен только при поддержке виджетом платформы.
+    ClipMatch:
+      type: object
+      required: [source, start, end, quote, confidence]
+      properties:
+        source: {$ref: '#/components/schemas/MatchSource'}
+        start: {type: [number, 'null'], minimum: 0}
+        end: {type: [number, 'null'], minimum: 0}
+        quote: {type: string, maxLength: 300}
+        confidence:
+          type: [string, 'null']
+          enum: [high, medium, low, null]
+          description: Не вероятность. null до калибровки порогов на контрольных запросах; UI скрывает оценку. Нельзя
+            напрямую превращать score e5 или RRF в проценты уверенности.
+      description: Отдельное совпадение внутри ролика. Для title/caption start=end=null; для speech/ocr/scene —
+        диапазон секунд, end >= start. OCR без длительности — точка start=end.
