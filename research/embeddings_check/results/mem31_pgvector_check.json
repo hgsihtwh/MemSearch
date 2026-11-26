@@ -1,0 +1,35 @@
+{
+  "evaluated": 107,
+  "without_answer": 3,
+  "recall_at_10": 0.9626168224299065,
+  "mrr": 0.9095102111457252,
+  "recall_at_1": 0.8691588785046729,
+  "timing_ms": {
+    "model_load": 19913,
+    "end_to_end": {
+      "median": 47.6,
+      "p95": 75.0,
+      "max": 90.2
+    },
+    "query_encode": {
+      "median": 39.1,
+      "p95": 67.2,
+      "max": 81.4
+    },
+    "database": {
+      "median": 7.7,
+      "p95": 11.8,
+      "max": 19.4
+    },
+    "queries": 110
+  },
+  "plan": [
+    "Limit  (cost=122.76..122.78 rows=10 width=16)",
+    "  InitPlan 1 (returns $0)",
+    "    ->  Limit  (cost=0.00..0.14 rows=1 width=18)",
+    "          ->  Seq Scan on chunks chunks_1  (cost=0.00..104.51 rows=751 width=18)",
+    "  ->  Sort  (cost=122.62..124.49 rows=751 width=16)",
+    "        Sort Key: ((chunks.embedding <=> $0))",
+    "        ->  Seq Scan on chunks  (cost=0.00..106.39 rows=751 width=16)"
+  ]
+}

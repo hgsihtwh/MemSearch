@@ -1,0 +1,7 @@
+{
+  "clip_id": 31,
+  "model": "faster-whisper large-v3",
+  "language": "ru",
+  "duration": 7.55,
+  "segments": []
+}
