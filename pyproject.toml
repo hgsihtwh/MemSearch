@@ -44,4 +44,4 @@ venv = ".venv"
 
 [tool.pytest.ini_options]
 testpaths = ["backend/tests", "research/pgvector_bench", "ml/tests"]
-pythonpath = ["backend"]
+pythonpath = [".", "backend"]
