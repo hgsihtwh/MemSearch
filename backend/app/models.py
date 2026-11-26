@@ -36,6 +36,8 @@ CLIP_STATUSES = (
     "ready",
     "failed",
 )
+ORIGINAL_STATUSES = ("available", "unavailable", "unknown")
+ORIGINAL_REASONS = ("removed", "private", "region_blocked", "embed_blocked", "network_error")
 
 
 def _in(column: str, values: tuple[str, ...]) -> str:
@@ -203,7 +205,11 @@ class Clip(Base):
         UniqueConstraint("id", "collection_id", name="uq_clips_id_collection"),
         CheckConstraint(_in("platform", ("tiktok", "vk"))),
         CheckConstraint(_in("status", CLIP_STATUSES)),
+        CheckConstraint("processing_percent BETWEEN 0 AND 100", name="ck_clips_processing_percent"),
+        CheckConstraint(_in("original_status", ORIGINAL_STATUSES), name="ck_clips_original_status"),
+        CheckConstraint(_in("original_reason", ORIGINAL_REASONS), name="ck_clips_original_reason"),
         Index("ix_clips_collection_added", "collection_id", "added_at"),
+        Index("ix_clips_collection_updated", "collection_id", "updated_at", "id"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
@@ -225,7 +231,14 @@ class Clip(Base):
         ForeignKey("topics.id", ondelete="SET NULL"), index=True
     )
     summary: Mapped[str | None] = mapped_column(Text)
+    processing_percent: Mapped[int | None] = mapped_column(Integer)
+    original_status: Mapped[str] = mapped_column(String(16), server_default="unknown")
+    original_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    original_reason: Mapped[str | None] = mapped_column(String(32))
     added_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
     collection: Mapped[Collection] = relationship(back_populates="clips")
     segments: Mapped[list["TranscriptSegment"]] = relationship(

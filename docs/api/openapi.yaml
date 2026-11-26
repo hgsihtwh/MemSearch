@@ -1440,7 +1440,7 @@ components:
         thumbnail_url: {type: [string, 'null'], format: uri}
         duration: {type: [number, 'null']}
         status: {$ref: '#/components/schemas/ClipStatus'}
-        searchable: {type: boolean, description: Ролик уже доступен для поиска, даже если полная обработка ещё идёт: null}
+        searchable: {type: boolean, description: "Ролик уже доступен для поиска, даже если полная обработка ещё идёт"}
         summary: {type: [string, 'null'], description: Краткое описание (1.0)}
         added_at: {type: string, format: date-time}
         updated_at: {type: string, format: date-time}
