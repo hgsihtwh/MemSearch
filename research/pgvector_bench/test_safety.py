@@ -266,3 +266,30 @@ def test_two_parallel_sessions_use_private_tables_and_hnsw():
         for sql in drops:
             names = sql.removeprefix("DROP TABLE IF EXISTS ").split(", ")
             assert all(name.startswith("pg_temp.") for name in names)
+
+
+def test_benchmark_saves_actual_plan_for_each_ef_search():
+    conn = FakeConnection(FakeDB())
+    args = arguments()
+    args.ef_search = [40, 100]
+    args.plans = []
+    asyncio.run(bench.bench_one(conn, args, 3, 10))
+    assert args.plans == [
+        {"dim": 3, "n_vectors": 10, "ef_search": ef, "plan": "Index Scan using bench_3_10_hnsw"}
+        for ef in (40, 100)
+    ]
+    assert sum(sql.startswith("EXPLAIN (ANALYZE, BUFFERS)") for sql in conn.sql) == 2
+
+
+def test_benchmark_rejects_non_hnsw_execution_plan():
+    class WrongPlanConnection(FakeConnection):
+        async def fetch(self, sql, *args):
+            if sql.startswith("EXPLAIN (ANALYZE, BUFFERS)"):
+                return [("Seq Scan on bench_3_10",)]
+            return await super().fetch(sql, *args)
+
+    conn = WrongPlanConnection(FakeDB())
+    with pytest.raises(RuntimeError, match="Поиск идёт не по HNSW"):
+        asyncio.run(bench.bench_one(conn, arguments(), 3, 10))
+    assert not conn.temporary
+    assert not conn.db.dropped_public

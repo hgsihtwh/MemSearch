@@ -9,7 +9,8 @@ hnsw.ef_search и recall@10 относительно точного поиска
 
     uv run --locked python research/pgvector_bench/bench.py
 
-Результаты печатаются и сохраняются в results.csv и results.md рядом со скриптом.
+Результаты сохраняются после каждого объёма: results.csv, results.md и results_plans.json
+(EXPLAIN ANALYZE с буферами для каждого ef_search). При ошибке завершённые замеры остаются.
 Для параллельных запусков задавайте разные --output, чтобы не перезаписать результаты.
 Временные таблицы изолированы по соединениям; построение их индексов не параллелится.
 """
@@ -19,6 +20,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import csv
+import json
 import os
 import statistics
 import time
@@ -274,6 +276,18 @@ async def bench_one(
         rows: list[Row] = []
         for ef in args.ef_search:
             await conn.execute(f"SET LOCAL hnsw.ef_search = {ef}")
+            plan = "\n".join(
+                r[0]
+                for r in await conn.fetch(
+                    f"EXPLAIN (ANALYZE, BUFFERS) SELECT id FROM {table} "
+                    "ORDER BY embedding <=> $1::vector LIMIT 10",
+                    queries[0],
+                )
+            )
+            if f"{name}_hnsw" not in plan:
+                raise RuntimeError(f"Поиск идёт не по HNSW:\n{plan}")
+            if hasattr(args, "plans"):
+                args.plans.append({"dim": dim, "n_vectors": n, "ef_search": ef, "plan": plan})
             for q in queries[: args.warmup]:
                 await search_ids(conn, table, q)
             times: list[float] = []
@@ -368,6 +382,7 @@ def parse_args() -> argparse.Namespace:
 
 async def main() -> None:
     args = parse_args()
+    args.plans = []
     conn = await asyncpg.connect(**db_settings())
     try:
         await conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
@@ -387,9 +402,14 @@ async def main() -> None:
         for dim in args.dims:
             for n in args.sizes:
                 rows.extend(await bench_one(conn, args, dim, n))
+                write_results(rows, meta, args.output)
+                (HERE / f"{args.output}_plans.json").write_text(
+                    json.dumps({"meta": meta, "plans": args.plans}, ensure_ascii=False, indent=2)
+                    + "\n",
+                    encoding="utf-8",
+                )
     finally:
         await conn.close()
-    write_results(rows, meta, args.output)
 
 
 if __name__ == "__main__":
