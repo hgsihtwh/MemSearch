@@ -45,16 +45,128 @@ class Base(DeclarativeBase):
     pass
 
 
-class Collection(Base):
-    """Коллекция роликов; вместо учётной записи — ключ доступа (хранится только хеш)."""
-
-    __tablename__ = "collections"
+class User(Base):
+    __tablename__ = "users"
+    __table_args__ = (
+        CheckConstraint(
+            "email IS NULL OR (email = lower(btrim(email)) AND length(email) > 0)",
+            name="ck_users_normalized_email",
+        ),
+        CheckConstraint(
+            "password_hash IS NULL OR email IS NOT NULL", name="ck_users_password_has_email"
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    key_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    email: Mapped[str | None] = mapped_column(String(254), unique=True)
+    password_hash: Mapped[str | None] = mapped_column(Text)
+    display_name: Mapped[str] = mapped_column(String(60))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    collection: Mapped["Collection | None"] = relationship(
+        back_populates="owner", cascade="all, delete-orphan", passive_deletes=True
+    )
+
+
+class UserIdentity(Base):
+    """Способ входа; не зависит от подключения бота к коллекции."""
+
+    __tablename__ = "user_identities"
+    __table_args__ = (
+        UniqueConstraint("provider", "provider_user_id"),
+        UniqueConstraint("user_id", "provider"),
+        CheckConstraint("provider = 'telegram'", name="ck_user_identities_provider"),
+        CheckConstraint("provider_user_id > 0", name="ck_user_identities_positive_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    provider: Mapped[str] = mapped_column(String(16), default="telegram")
+    provider_user_id: Mapped[int] = mapped_column(BigInteger)
+    username: Mapped[str | None] = mapped_column(Text)
+
+
+class AuthSession(Base):
+    __tablename__ = "auth_sessions"
+    __table_args__ = (
+        CheckConstraint(
+            "refresh_expires_at > access_expires_at", name="ck_auth_sessions_expiry_order"
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    access_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    refresh_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    access_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    refresh_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class OneTimeToken(Base):
+    __tablename__ = "one_time_tokens"
+    __table_args__ = (
+        CheckConstraint(
+            _in("purpose", ("password_reset", "email_setup")), name="ck_one_time_tokens_purpose"
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    purpose: Mapped[str] = mapped_column(String(16))
+    email: Mapped[str] = mapped_column(String(254))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class TelegramLogin(Base):
+    __tablename__ = "telegram_logins"
+    __table_args__ = (
+        CheckConstraint(
+            _in("status", ("pending", "approved", "expired", "consumed")),
+            name="ck_telegram_logins_status",
+        ),
+        CheckConstraint(
+            "status NOT IN ('approved', 'consumed') OR user_id IS NOT NULL",
+            name="ck_telegram_logins_confirmed_user",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    poll_token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    status: Mapped[str] = mapped_column(String(16), default="pending")
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class Collection(Base):
+    """Личная коллекция; старые коллекции сохраняют хеш до назначения владельца."""
+
+    __tablename__ = "collections"
+    __table_args__ = (
+        CheckConstraint(
+            "(user_id IS NOT NULL AND key_hash IS NULL) "
+            "OR (user_id IS NULL AND key_hash IS NOT NULL)",
+            name="ck_collections_owner_or_legacy_key",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), unique=True
+    )
+    key_hash: Mapped[str | None] = mapped_column(String(64), unique=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     onboarding_done_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
+    owner: Mapped[User | None] = relationship(back_populates="collection")
     clips: Mapped[list["Clip"]] = relationship(
         back_populates="collection", cascade="all, delete-orphan", passive_deletes=True
     )
@@ -247,7 +359,8 @@ class TelegramLink(Base):
         ForeignKey("collections.id", ondelete="CASCADE"), index=True
     )
     telegram_user_id: Mapped[int | None] = mapped_column(BigInteger, unique=True)
-    link_code: Mapped[str | None] = mapped_column(String(32), unique=True)
+    username: Mapped[str | None] = mapped_column(Text)
+    code_hash: Mapped[str | None] = mapped_column(String(64), unique=True)
     code_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     linked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
